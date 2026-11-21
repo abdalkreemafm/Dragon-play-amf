@@ -1,0 +1,309 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Cairo', 'Outfit', system-ui, -apple-system, sans-serif;
+    --font-display: 'Outfit', 'Cairo', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    font-family: var(--font-sans);
+    background-color: #0b0d14;
+    color: #f8fafc;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 17, 23, 0.4);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 197, 24, 0.5);
+}
+
+@keyframes floatUpFade {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(0.88);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(-50%, -24px) scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -78px) scale(0.95);
+  }
+}
+
+@keyframes critPop {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(0.7) rotate(-8deg);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(-50%, -28px) scale(1.35) rotate(4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -92px) scale(1.05) rotate(0deg);
+  }
+}
+
+@keyframes duckSquash {
+  0% {
+    transform: scale(1, 1);
+  }
+  30% {
+    transform: scale(1.09, 0.89);
+  }
+  65% {
+    transform: scale(0.95, 1.06);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes duckBreathe {
+  0%, 100% {
+    transform: translateY(0px) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.015, 0.985);
+  }
+}
+
+@keyframes hitShake {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-4px, 2px);
+  }
+  40% {
+    transform: translate(4px, -2px);
+  }
+  60% {
+    transform: translate(-3px, -1px);
+  }
+  80% {
+    transform: translate(3px, 1px);
+  }
+}
+
+@keyframes eggMergePop {
+  0% {
+    transform: scale(0.58);
+    filter: brightness(1.7);
+  }
+  55% {
+    transform: scale(1.18);
+    filter: brightness(1.3);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes gentlePulseRing {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(250, 204, 21, 0);
+  }
+}
+
+@keyframes feverGlow {
+  0%, 100% {
+    box-shadow: 0 0 22px rgba(245, 158, 11, 0.45), inset 0 0 18px rgba(244, 63, 94, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 38px rgba(244, 63, 94, 0.7), inset 0 0 28px rgba(250, 204, 21, 0.35);
+  }
+}
+
+.animate-float-up {
+  animation: floatUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-crit-pop {
+  animation: critPop 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-duck-squash {
+  animation: duckSquash 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-duck-breathe {
+  animation: duckBreathe 2.8s ease-in-out infinite;
+}
+
+.animate-hit-shake {
+  animation: hitShake 0.22s ease-in-out;
+}
+
+.animate-merge-pop {
+  animation: eggMergePop 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-match-ring {
+  animation: gentlePulseRing 1.6s infinite;
+}
+
+.animate-fever-glow {
+  animation: feverGlow 1s ease-in-out infinite;
+}
+
+@keyframes emberDrift {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px) scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-14px) translateX(6px) scale(1.25);
+    opacity: 0.85;
+  }
+}
+
+@keyframes waterShimmer {
+  0%, 100% {
+    transform: scaleX(1) scaleY(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scaleX(1.06) scaleY(0.95);
+    opacity: 0.75;
+  }
+}
+
+@keyframes dragonWingFlap {
+  0%, 100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  50% {
+    transform: scaleY(1.045) scaleX(0.975);
+  }
+}
+
+@keyframes dragonBreathPulse {
+  0%, 100% {
+    opacity: 0.52;
+    transform: translate(0px, 0px) scale(0.95);
+  }
+  50% {
+    opacity: 0.95;
+    transform: translate(-3px, -2px) scale(1.08);
+  }
+}
+
+@keyframes dragonLightningFlicker {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  18% {
+    opacity: 0.95;
+  }
+  24% {
+    opacity: 0.35;
+  }
+  55% {
+    opacity: 0.92;
+  }
+  62% {
+    opacity: 0.4;
+  }
+}
+
+.animate-ember {
+  animation: emberDrift 3.6s ease-in-out infinite;
+}
+
+.animate-water-shimmer {
+  animation: waterShimmer 3.2s ease-in-out infinite;
+}
+
+.animate-dragon-wing {
+  transform-box: fill-box;
+  transform-origin: center center;
+  animation: dragonWingFlap 3.1s ease-in-out infinite;
+}
+
+.animate-dragon-breath {
+  transform-box: fill-box;
+  transform-origin: center center;
+  animation: dragonBreathPulse 2.4s ease-in-out infinite;
+}
+
+.animate-dragon-bolt {
+  animation: dragonLightningFlicker 2.2s ease-in-out infinite;
+}
+
+.realistic-card {
+  background: radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.05) 0%, rgba(17, 20, 30, 0.96) 65%, rgba(9, 11, 17, 1) 100%);
+  box-shadow:
+    0 22px 45px -12px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -10px 24px rgba(0, 0, 0, 0.55);
+}
+
+.stone-socket {
+  background: linear-gradient(160deg, #252a3a 0%, #171a25 55%, #11131c 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.stone-socket-locked {
+  background: linear-gradient(160deg, #12141d 0%, #0b0d14 100%);
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.85);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-up,
+  .animate-crit-pop,
+  .animate-duck-squash,
+  .animate-duck-breathe,
+  .animate-hit-shake,
+  .animate-merge-pop,
+  .animate-match-ring,
+  .animate-fever-glow,
+  .animate-ember,
+  .animate-water-shimmer,
+  .animate-dragon-wing,
+  .animate-dragon-breath,
+  .animate-dragon-bolt {
+    animation: none !important;
+  }
+}

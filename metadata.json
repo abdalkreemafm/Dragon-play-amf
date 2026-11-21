@@ -1,0 +1,8 @@
+{
+  "name": "DRAGON × DMD",
+  "description": "لعبة تربية وتطوير التنانين ودمج البيض، جمع البركات، الحلبة التنافسية، وسوق المزايدات.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
