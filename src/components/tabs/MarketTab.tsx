@@ -10,6 +10,7 @@ import {
   getBarterStarsToEnergyPayout,
   getDragonSellCornPrice,
   getPlayerTier,
+  resolveDragonSize,
 } from '../../utils/economyEngine';
 
 interface MarketTabProps {
@@ -151,15 +152,15 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/90 border border-amber-400/30 p-2.5">
-                <div className="text-[10px] text-slate-400">رصيدك المستقبلي</div>
+                <div className="text-[10px] text-slate-400">رصيد محفظتك</div>
                 <div className="text-base font-black text-amber-300 mt-0.5">
-                  {state.dmdTotal.toFixed(3)}
+                  {state.dmdTotal.toFixed(2)}
                 </div>
               </div>
             </div>
 
             <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-2 text-[11px] text-slate-300 leading-relaxed">
-              🔒 <strong className="text-white">سياسة منع التضخم:</strong> عملة <strong className="text-amber-300">DMD</strong> لا تُباع في المتجر ولا تُستخدم لشراء العناصر؛ يتم كسبها فقط من التنانين التي تصل إلى <strong className="text-white">LVL 5 + تخصيص النجوم ★</strong>.
+              🔒 <strong className="text-white">سياسة العملة الرقمية:</strong> عملة <strong className="text-amber-300">DMD</strong> لا تُعدَّن ولا تُباع في المتجر؛ بل هي رصيد في المحفظة يُكتسب حصراً عبر تخصيص التنانين (★1 ← ★10) وتُستبدل عند الإطلاق الرسمي في المنصات.
             </div>
           </div>
 
@@ -201,7 +202,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
 
                   <button
                     onClick={() => onBuyStorePackage(pkg.id)}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-black text-xs hover:brightness-105 cursor-pointer font-mono-num"
+                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-black text-xs hover:brightness-105 cursor-pointer font-mono-num"
                   >
                     اقتناء · ${pkg.priceUsd.toFixed(2)}
                   </button>
@@ -278,7 +279,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                     soundFX.playGodConfirm();
                     onBuyMarketGod(god.id);
                   }}
-                  className={`px-3.5 py-2 rounded-xl font-black text-xs flex items-center gap-1 ${
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs flex items-center gap-1 shrink-0 ${
                     state.stars >= god.starCost
                       ? 'bg-indigo-500 text-white hover:bg-indigo-400 cursor-pointer'
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -371,13 +372,14 @@ export const MarketTab: React.FC<MarketTabProps> = ({
               <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
                 <h3 className="text-sm font-black text-white mb-1">تنانيني المتاحة للبيع</h3>
                 <p className="text-xs text-slate-400 mb-3">
-                  اعرض أي تنين غير نشط في التوليد واحصل على الطاقة فوراً!
+                  اعرض أي تنين غير مشغول بالتزاوج حالياً واحصل على الطاقة فوراً!
                 </p>
                 <div className="space-y-2.5">
                   {state.ducks
-                    .filter((d) => !d.staked && state.ducks.length > 1)
+                    .filter((d) => !d.breedingEndsAt && state.ducks.length > 1)
                     .map((d) => {
                       const sellPrice = getDragonSellCornPrice(d, playerTier);
+                      const dSize = resolveDragonSize(d);
                       return (
                         <div
                           key={d.id}
@@ -394,7 +396,14 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                               className="w-12 h-12"
                             />
                             <div>
-                              <div className="text-xs font-extrabold text-white">{d.name}</div>
+                              <div className="text-xs font-extrabold text-white flex items-center gap-1">
+                                <span>{d.name}</span>
+                                {dSize !== 'NORMAL' && (
+                                  <span className="px-1 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono-num text-[9px] font-black">
+                                    {dSize}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] font-mono-num text-amber-300">
                                 {RARITY_STYLE[d.rarity].labelAr} · LVL {d.level} · ★{d.customLevel}
                               </div>
@@ -532,7 +541,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                               soundFX.playTapFeed();
                               onBidListing(item.id);
                             }}
-                            className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
+                            className={`min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
                               state.corn >= nextBidCorn
                                 ? 'bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 hover:brightness-105 cursor-pointer'
                                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -549,7 +558,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                               soundFX.playGodConfirm();
                               onBuyNowListing(item.id);
                             }}
-                            className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
+                            className={`min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
                               state.stars >= item.starPrice
                                 ? 'bg-indigo-500 text-white hover:bg-indigo-400 cursor-pointer'
                                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -580,7 +589,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                           soundFX.playTabSwitch();
                           setTimeframe(tf);
                         }}
-                        className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                        className={`min-h-[36px] min-w-[36px] px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
                           timeframe === tf ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >

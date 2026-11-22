@@ -1,5 +1,7 @@
 import {
+  AchievementRegistryItem,
   ActiveBuffs,
+  DailyPassRewardConfig,
   DragonSlotMeta,
   Duck,
   DuckAuraId,
@@ -13,12 +15,29 @@ import {
   GodOrder,
   GodPatronId,
   GridCell,
+  HeartMilestoneConfig,
+  HonorPackConfig,
   LeagueTier,
+  LiveEventConfig,
   MarketListing,
+  PromoCodeReward,
   Rarity,
+  RivalProfile,
+  SeasonConfig,
+  SocialTaskConfig,
   SquadTalents,
+  TournamentMilestoneConfig,
+  TreasureStepConfig,
+  WheelRewardSegment,
 } from '../types/game';
-import { calculateDragonFeedCost } from '../utils/economyEngine';
+import {
+  calculateCustomUpgradeCost,
+  calculateDragonFeedCost,
+  clampCustomLevel,
+  getDragonMaxDmdPrice,
+  getLevelRequiredFeeds,
+  resolveDragonSize,
+} from '../utils/economyEngine';
 
 export const RARITY_ORDER: Rarity[] = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'];
 
@@ -31,6 +50,7 @@ export const RARITY_STYLE: Record<
     glow: string;
     border: string;
     bg: string;
+    baseDmdPrice: number;
     baseDmdPerHour: number;
     maxCapHours: number;
     basePower: number;
@@ -38,77 +58,80 @@ export const RARITY_STYLE: Record<
 > = {
   COMMON: {
     label: 'COMMON',
-    labelAr: 'شائع',
-    color: 'text-slate-300',
+    labelAr: 'عادي',
+    color: 'text-slate-200',
     glow: 'from-slate-500/20 via-amber-500/10 to-transparent',
-    border: 'border-slate-600/60',
+    border: 'border-slate-500/60',
     bg: 'bg-slate-700/40',
-    baseDmdPerHour: 0.4,
-    maxCapHours: 6,
+    baseDmdPrice: 15,
+    baseDmdPerHour: 0,
+    maxCapHours: 0,
     basePower: 110,
   },
   UNCOMMON: {
     label: 'UNCOMMON',
-    labelAr: 'غير شائع',
+    labelAr: 'نادر',
     color: 'text-emerald-400',
     glow: 'from-emerald-500/30 via-emerald-500/10 to-transparent',
     border: 'border-emerald-500/50',
     bg: 'bg-emerald-500/15',
-    baseDmdPerHour: 0.85,
-    maxCapHours: 7,
+    baseDmdPrice: 45,
+    baseDmdPerHour: 0,
+    maxCapHours: 0,
     basePower: 185,
   },
   RARE: {
     label: 'RARE',
-    labelAr: 'نادر',
+    labelAr: 'ملحمي',
     color: 'text-sky-400',
     glow: 'from-sky-500/35 via-indigo-500/10 to-transparent',
     border: 'border-sky-500/50',
     bg: 'bg-sky-500/15',
-    baseDmdPerHour: 1.5,
-    maxCapHours: 6,
+    baseDmdPrice: 120,
+    baseDmdPerHour: 0,
+    maxCapHours: 0,
     basePower: 290,
   },
   EPIC: {
     label: 'EPIC',
-    labelAr: 'ملحمي',
+    labelAr: 'أسطوري',
     color: 'text-purple-400',
     glow: 'from-purple-500/35 via-fuchsia-500/10 to-transparent',
     border: 'border-purple-500/50',
     bg: 'bg-purple-500/15',
-    baseDmdPerHour: 2.5,
-    maxCapHours: 8,
+    baseDmdPrice: 350,
+    baseDmdPerHour: 0,
+    maxCapHours: 0,
     basePower: 440,
   },
   LEGENDARY: {
     label: 'LEGENDARY',
-    labelAr: 'أسطوري',
+    labelAr: 'خرافي',
     color: 'text-amber-400',
     glow: 'from-amber-400/40 via-orange-500/15 to-transparent',
     border: 'border-amber-400/60',
     bg: 'bg-amber-500/15',
-    baseDmdPerHour: 4.0,
-    maxCapHours: 12,
+    baseDmdPrice: 1000,
+    baseDmdPerHour: 0,
+    maxCapHours: 0,
     basePower: 680,
   },
 };
 
-// Rarity & Tier-Aware Feeding Cost Formula: ceil(28 * 1.48^(LVL-1) * M_R * (1 + 0.10*(T-1)))
 export function getFeedCost(
   level: number,
   rarity: Rarity = 'COMMON',
-  playerTier = 1
+  playerTier = 1,
+  clicksSinceReset = 0,
+  dragon?: Pick<Duck, 'sizeTier' | 'xl'>
 ): number {
-  return calculateDragonFeedCost(level, rarity, playerTier);
+  return calculateDragonFeedCost(level, rarity, playerTier, clicksSinceReset, resolveDragonSize(dragon));
 }
 
-// Exact Star Customization Cost Formula: ceil(10 * (1.35)^Custom_LVL)
 export function getCustomUpgradeCost(customLevel: number): number {
-  return Math.ceil(10 * Math.pow(1.35, Math.max(0, customLevel)));
+  return calculateCustomUpgradeCost(customLevel);
 }
 
-// Unified Diminishing Returns Law across ALL players:
-// Slot 1 & 2 -> 100%, Slot 3 & 4 -> 75%, Slot 5..8 -> 50%
 export function getSlotEfficiency(slotIndex: number | null): number {
   if (slotIndex === null || slotIndex < 0) return 0;
   if (slotIndex <= 1) return 1.0;
@@ -116,18 +139,17 @@ export function getSlotEfficiency(slotIndex: number | null): number {
   return 0.5;
 }
 
-export function getDragonDmdPerHour(dragon: Duck): number {
-  if (dragon.level < 5 || dragon.customLevel < 1 || dragon.slotIndex === null) return 0;
-  const base = RARITY_STYLE[dragon.rarity].baseDmdPerHour;
-  const customFactor = 1 + 0.12 * dragon.customLevel;
-  const eff = getSlotEfficiency(dragon.slotIndex);
-  return base * customFactor * eff;
+export function getDragonVaultDmdPrice(dragon: Pick<Duck, 'rarity' | 'sizeTier' | 'xl'>): number {
+  return getDragonMaxDmdPrice(dragon.rarity, resolveDragonSize(dragon));
 }
 
-export function getDragonMaxCapDmd(dragon: Duck): number {
-  const rate = getDragonDmdPerHour(dragon);
-  if (rate <= 0) return 0;
-  return rate * RARITY_STYLE[dragon.rarity].maxCapHours;
+// DMD is never mined hourly; kept strictly at 0 for interface compatibility
+export function getDragonDmdPerHour(_dragon: Duck): number {
+  return 0;
+}
+
+export function getDragonMaxCapDmd(_dragon: Duck): number {
+  return 0;
 }
 
 export const DRAGON_SLOTS: DragonSlotMeta[] = [
@@ -213,21 +235,22 @@ export function checkSlotUnlockEligibility(slotIndex: number, state: GameState) 
   }
 
   let metCondition = true;
+  const allOwned = [...state.ducks, ...(state.customizedVault ?? [])];
   if (slotIndex === 3) {
-    metCondition = state.ducks.some((d) => d.level >= 5);
+    metCondition = allOwned.some((d) => d.level >= 5);
   } else if (slotIndex === 4) {
-    metCondition = state.ducks.some((d) => d.customLevel >= 1);
+    metCondition = allOwned.some((d) => d.customLevel >= 1);
   } else if (slotIndex === 5) {
-    const rareOrHigher = state.ducks.filter((d) => RARITY_ORDER.indexOf(d.rarity) >= 2).length;
-    metCondition = rareOrHigher >= 2;
+    const epicOrHigher = allOwned.filter((d) => RARITY_ORDER.indexOf(d.rarity) >= 2).length;
+    metCondition = epicOrHigher >= 2;
   } else if (slotIndex === 6) {
     metCondition = state.league.wins >= 10;
   } else if (slotIndex === 7) {
     const passLv = Math.floor(state.battlePass.xp / 100) + 1;
-    const hasCustomEpic = state.ducks.some(
+    const hasCustomLegendary = allOwned.some(
       (d) => RARITY_ORDER.indexOf(d.rarity) >= 3 && d.customLevel >= 1
     );
-    metCondition = hasCustomEpic && passLv >= 5;
+    metCondition = hasCustomLegendary && passLv >= 5;
   }
 
   const hasEnoughStars = state.stars >= meta.starCost;
@@ -297,16 +320,262 @@ export const STORE_PACKAGES: StorePackage[] = [
   },
 ];
 
-export const WEEKEND_EVENTS = [
+export const ACTIVE_SEASON: SeasonConfig = {
+  id: 'season_1_ember_crown',
+  seasonNumber: 1,
+  nameAr: 'الموسم الأول · عرش الجمر',
+  passTitleAr: 'تذكرة الموسم · عرش الجمر',
+  passLevels: 15,
+  premiumPriceUsd: 4.99,
+  premiumFallbackStarsCost: 60,
+  bonusDescriptionAr: 'مضاعفة مكافآت الدوري وتنين إمبراطوري أسطوري عند المستوى 15',
+};
+
+export const LIVE_EVENTS_REGISTRY: LiveEventConfig[] = [
   {
+    id: 'evt_arena_stars_x2',
     title: 'فعالية نهاية الأسبوع: مضاعفة نجوم الحلبة ×2',
-    desc: 'كل فوز في الحلبة أو السباق يمنح ضعف مكافأة النجوم لتسريع التخصيص!',
+    desc: 'كل فوز في الحلبة أو السباق يمنح ضعف مكافأة النجوم لتسريع التخصيص حتى ★100!',
     starBonusMult: 2,
+    arenaEnergyMult: 1,
+    templeEnergyMult: 1,
+    badgeText: 'نجوم الحلبة ×2',
   },
   {
-    title: 'فعالية حُمّى التفقيس والطاقات',
-    desc: 'مكافآت طاقة مضاعفة من المعبد وتسريع تفقيس بيض التنانين!',
+    id: 'evt_temple_fever',
+    title: 'فعالية حُمّى التفقيس والمعبد',
+    desc: 'مكافآت طاقة +35% من قرابين المعبد و+25% طاقة من نزالات الحلبة!',
     starBonusMult: 1,
+    arenaEnergyMult: 1.25,
+    templeEnergyMult: 1.35,
+    badgeText: 'بركة المعبد +35%',
+  },
+];
+
+// Alias kept for backwards compatibility with components reading WEEKEND_EVENTS
+export const WEEKEND_EVENTS = LIVE_EVENTS_REGISTRY;
+
+export const TOURNAMENT_MILESTONES: TournamentMilestoneConfig[] = [
+  { score: 40, labelAr: '+150 طاقة ⚡', reward: { corn: 150 } },
+  { score: 100, labelAr: '+250 طاقة و +4 ★', reward: { corn: 250, stars: 4 } },
+  { score: 250, labelAr: '+500 طاقة و +12 ★ و +2 💎', reward: { corn: 500, stars: 12, duckGold: 2 } },
+  { score: 400, labelAr: '+800 طاقة و +20 ★ و +4 💎', reward: { corn: 800, stars: 20, duckGold: 4 } },
+];
+
+export const TREASURE_RACE_STEPS: TreasureStepConfig[] = [
+  {
+    step: 1,
+    titleAr: 'الخطوة الأولى · بوابة الحجر',
+    rewardLabelAr: '+180 طاقة + 4 ★',
+    reward: { corn: 180, stars: 4 },
+  },
+  {
+    step: 2,
+    titleAr: 'الخطوة الثانية · مذبح النار',
+    rewardLabelAr: '+280 طاقة + 6 ★ + 3 💎',
+    reward: { corn: 280, stars: 6, duckGold: 3 },
+  },
+  {
+    step: 3,
+    titleAr: 'الخطوة الثالثة · قبة الصاعقة',
+    rewardLabelAr: '+420 طاقة + 10 ★ + بيضة [4]',
+    reward: { corn: 420, stars: 10, eggs: ['egg_4'] },
+  },
+  {
+    step: 4,
+    titleAr: 'الخطوة الرابعة · خزانة الأساطير',
+    rewardLabelAr: '+650 طاقة + 18 ★ + 5 💎 + معزز دمج',
+    reward: { corn: 650, stars: 18, duckGold: 5, autoMergeBoosters: 1 },
+  },
+];
+
+export const HONOR_PACKS_REGISTRY: HonorPackConfig[] = [
+  {
+    id: 'honor_p1',
+    titleAr: 'حزمة الشرف البرونزية',
+    costLetters: 3,
+    rewardDescAr: '+200 طاقة و +6 ★',
+    reward: { corn: 200, stars: 6 },
+  },
+  {
+    id: 'honor_p2',
+    titleAr: 'حزمة الشرف الفضية',
+    costLetters: 6,
+    rewardDescAr: '+480 طاقة و +14 ★ و +3 💎',
+    reward: { corn: 480, stars: 14, duckGold: 3 },
+  },
+  {
+    id: 'honor_p3',
+    titleAr: 'حزمة الشرف الإمبراطورية',
+    costLetters: 12,
+    rewardDescAr: '+1,100 طاقة و +30 ★ و +6 💎 وبيضة [5]',
+    reward: { corn: 1100, stars: 30, duckGold: 6, eggs: ['egg_5'] },
+  },
+];
+
+export const HEART_MILESTONES_REGISTRY: HeartMilestoneConfig[] = [
+  {
+    targetHearts: 500,
+    rewardLabelAr: '+240 طاقة و +6 ★',
+    reward: { corn: 240, stars: 6 },
+  },
+  {
+    targetHearts: 1200,
+    rewardLabelAr: '+550 طاقة و +14 ★ و +3 💎',
+    reward: { corn: 550, stars: 14, duckGold: 3 },
+  },
+  {
+    targetHearts: 2500,
+    rewardLabelAr: '+1,200 طاقة و +28 ★ وبيضة [6]',
+    reward: { corn: 1200, stars: 28, eggs: ['egg_6'] },
+  },
+];
+
+export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
+  {
+    id: 'ach_feed_50',
+    titleAr: 'مروض التنانين الصاعد',
+    descAr: 'أطعم التنانين 50 مرة',
+    metric: 'feeds',
+    target: 50,
+    rewardLabelAr: '+5 ★ و +200 ⚡',
+    reward: { stars: 5, corn: 200 },
+  },
+  {
+    id: 'ach_merge_60',
+    titleAr: 'ساحر التفقيس',
+    descAr: 'ادمج 60 بيضة تنين',
+    metric: 'merges',
+    target: 60,
+    rewardLabelAr: '+8 ★ و +320 ⚡',
+    reward: { stars: 8, corn: 320 },
+  },
+  {
+    id: 'ach_errand_15',
+    titleAr: 'خادم المعبد المخلص',
+    descAr: 'سلّم 15 قرباناً للمعبد',
+    metric: 'errands',
+    target: 15,
+    rewardLabelAr: '+10 ★ و +3 💎',
+    reward: { stars: 10, duckGold: 3 },
+  },
+  {
+    id: 'ach_arena_10',
+    titleAr: 'بطل الحلبة',
+    descAr: 'اربح 10 نزالات في الحلبة',
+    metric: 'wins',
+    target: 10,
+    rewardLabelAr: '+15 ★ و +20 🏅',
+    reward: { stars: 15, medals: 20 },
+  },
+  {
+    id: 'ach_star_10',
+    titleAr: 'تخصيص مصقول ★5',
+    descAr: 'صل بأي تنين إلى تخصيص ★5',
+    metric: 'maxCustom',
+    target: 5,
+    rewardLabelAr: '+20 ★ و +5 💎',
+    reward: { stars: 20, duckGold: 5 },
+  },
+  {
+    id: 'ach_star_50',
+    titleAr: 'ختم التخصيص الكامل ★10',
+    descAr: 'أكمل تخصيص تنين للمستوى ★10 وأرسله للخزانة',
+    metric: 'maxCustom',
+    target: 10,
+    rewardLabelAr: '+45 ★ و +12 💎 وبيضة [6]',
+    reward: { stars: 45, duckGold: 12, eggs: ['egg_6'] },
+  },
+];
+
+export const SOCIAL_TASKS_REGISTRY: SocialTaskConfig[] = [
+  {
+    id: 'soc_tg_channel',
+    titleAr: 'انضم لقناة مجتمع DRAGON × DMD على تيليجرام',
+    rewardDescAr: '+5 ★ و +180 طاقة',
+    url: 'https://t.me/dragon_dmd_community',
+    reward: { stars: 5, corn: 180 },
+  },
+  {
+    id: 'soc_tg_chat',
+    titleAr: 'شارك في دردشة المربين الرسمية',
+    rewardDescAr: '+4 ★ و +140 طاقة',
+    url: 'https://t.me/dragon_dmd_chat',
+    reward: { stars: 4, corn: 140 },
+  },
+  {
+    id: 'soc_x_follow',
+    titleAr: 'تابع أخبار المواسم والتحديثات',
+    rewardDescAr: '+5 ★ و +2 💎',
+    url: 'https://x.com',
+    reward: { stars: 5, duckGold: 2 },
+  },
+];
+
+export const PROMO_CODES_REGISTRY: PromoCodeReward[] = [
+  { code: 'DRAGON', labelAr: 'حزمة التنين الترحيبية', reward: { corn: 320, stars: 8, duckGold: 2 } },
+  { code: 'DMD2025', labelAr: 'ذخيرة موسم عرش الجمر', reward: { corn: 450, stars: 12, medals: 15 } },
+  { code: 'ARENA', labelAr: 'شحنة فرسان الحلبة', reward: { corn: 280, stars: 7, hammerBoosters: 1 } },
+  { code: 'VIP', labelAr: 'تذكار النخبة الملكي', reward: { corn: 550, stars: 15, duckGold: 4, autoMergeBoosters: 1 } },
+];
+
+export const WHEEL_REWARDS_REGISTRY: WheelRewardSegment[] = [
+  { id: 'w_energy_180', label: '+180 طاقة ⚡', shortLabel: '+180 ⚡', color: '#0284c7', reward: { corn: 180 } },
+  { id: 'w_stars_6', label: '+6 نجوم ★', shortLabel: '+6 ★', color: '#d97706', reward: { stars: 6 } },
+  { id: 'w_gold_4', label: '+4 ذهب تنانين 💎', shortLabel: '+4 💎', color: '#7c3aed', reward: { duckGold: 4 } },
+  { id: 'w_egg_4', label: 'بيضة الزمرد [4] 🥚', shortLabel: 'بيضة [4]', color: '#059669', reward: { eggs: ['egg_4'] } },
+  { id: 'w_medals_18', label: '+18 وسام قتال 🏅', shortLabel: '+18 🏅', color: '#e11d48', reward: { medals: 18 } },
+  { id: 'w_jackpot', label: 'جائزة كبرى (+300⚡ و +10★)', shortLabel: 'كبرى ★', color: '#f59e0b', reward: { corn: 300, stars: 10, duckGold: 2 } },
+];
+
+export const RIVALS_CATALOG: RivalProfile[] = [
+  {
+    id: 'rival_1',
+    name: 'حارس الظل',
+    skin: 'ninja',
+    rarity: 'UNCOMMON',
+    basePower: 220,
+    baseHp: 210,
+    baseAtk: 17,
+    cornReward: 210,
+    starReward: 4,
+    medalReward: 12,
+  },
+  {
+    id: 'rival_2',
+    name: 'عاصفة الجليد',
+    skin: 'cool',
+    rarity: 'RARE',
+    basePower: 340,
+    baseHp: 295,
+    baseAtk: 24,
+    cornReward: 320,
+    starReward: 6,
+    medalReward: 18,
+  },
+  {
+    id: 'rival_3',
+    name: 'تنين الفراعنة',
+    skin: 'pharaoh',
+    rarity: 'EPIC',
+    basePower: 510,
+    baseHp: 390,
+    baseAtk: 31,
+    cornReward: 460,
+    starReward: 9,
+    medalReward: 26,
+  },
+  {
+    id: 'rival_4',
+    name: 'الإمبراطور الخالد',
+    skin: 'royal',
+    rarity: 'LEGENDARY',
+    basePower: 760,
+    baseHp: 520,
+    baseAtk: 41,
+    cornReward: 660,
+    starReward: 14,
+    medalReward: 38,
   },
 ];
 
@@ -345,8 +614,11 @@ export function getDuckCombatStats(
   activeBuffs?: ActiveBuffs
 ) {
   const now = Date.now();
+  const customLv = clampCustomLevel(duck.customLevel);
   const gearBonus = DUCK_GEAR_CATALOG.find((g) => g.id === (duck.gear ?? 'none'))?.powerBonus ?? 0;
-  const customPowerBonus = duck.customLevel * 28;
+  // Bounded scaling across ★0..100 so ★11..100 remains rewarding without breaking Arena balance
+  const customPowerBonus =
+    Math.min(10, customLv) * 28 + Math.max(0, customLv - 10) * 10;
   const trainLv = duck.trainingLevel ?? 0;
   const furyPct = (talents?.fury ?? 0) * 2.5;
   const carapacePct = (talents?.carapace ?? 0) * 3;
@@ -376,9 +648,10 @@ export function getDuckCombatStats(
   const attack = Math.round(baseAtk * (baseMult + skeletonAtkBonus + (furyPct + buffFuryPct) / 100));
 
   const skinCritBonus = duck.skin === 'ninja' ? 20 : duck.skin === 'gamer' ? 12 : 0;
+  const customCritBonus = Math.min(10, customLv) + Math.floor(Math.max(0, customLv - 10) / 10);
   const critChance = Math.min(
     85,
-    20 + skinCritBonus + (duck.gear === 'shades' ? 6 : 0) + Math.min(10, duck.customLevel) + buffCritBonus
+    20 + skinCritBonus + (duck.gear === 'shades' ? 6 : 0) + customCritBonus + buffCritBonus
   );
 
   return {
@@ -408,7 +681,7 @@ export const DUCK_EVOLUTION_LEVELS: DuckEvolutionStage[] = [
     titleAr: 'المرحلة 1 · فقس التنين',
     scaleClass: 'scale-[0.86]',
     powerBonus: 0,
-    feedsRequired: 5,
+    feedsRequired: 100,
     ringColor: 'border-slate-500/40 bg-slate-400/10',
     badgeText: 'I',
   },
@@ -417,7 +690,7 @@ export const DUCK_EVOLUTION_LEVELS: DuckEvolutionStage[] = [
     titleAr: 'المرحلة 2 · تنين يافع',
     scaleClass: 'scale-[0.92]',
     powerBonus: 25,
-    feedsRequired: 7,
+    feedsRequired: 200,
     ringColor: 'border-emerald-400/55 bg-emerald-400/15',
     badgeText: 'II',
   },
@@ -426,7 +699,7 @@ export const DUCK_EVOLUTION_LEVELS: DuckEvolutionStage[] = [
     titleAr: 'المرحلة 3 · تنين مقاتل',
     scaleClass: 'scale-[0.97]',
     powerBonus: 60,
-    feedsRequired: 9,
+    feedsRequired: 300,
     ringColor: 'border-sky-400/65 bg-sky-400/20',
     badgeText: 'III',
   },
@@ -435,7 +708,7 @@ export const DUCK_EVOLUTION_LEVELS: DuckEvolutionStage[] = [
     titleAr: 'المرحلة 4 · تنين مجنّح',
     scaleClass: 'scale-[1.02]',
     powerBonus: 110,
-    feedsRequired: 12,
+    feedsRequired: 400,
     ringColor: 'border-purple-400/75 bg-purple-400/25',
     badgeText: 'IV',
   },
@@ -444,7 +717,7 @@ export const DUCK_EVOLUTION_LEVELS: DuckEvolutionStage[] = [
     titleAr: 'المرحلة 5 · التنين البالغ ★',
     scaleClass: 'scale-[1.08]',
     powerBonus: 180,
-    feedsRequired: 12,
+    feedsRequired: 500,
     ringColor: 'border-amber-400/90 bg-amber-400/30',
     badgeText: 'V ★',
   },
@@ -813,6 +1086,126 @@ export const SKIN_CATALOG: Record<DuckSkinId, { name: string; title: string }> =
   ninja: { name: 'تنين الظل الليلي', title: 'Shadow Dragon' },
 };
 
+export function getDragonElement(skin: DuckSkinId): 'frost' | 'storm' | 'ember' {
+  if (skin === 'aqua' || skin === 'bride' || skin === 'cool') return 'frost';
+  if (skin === 'dj' || skin === 'skeleton' || skin === 'ninja' || skin === 'gamer') return 'storm';
+  return 'ember';
+}
+
+export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
+  {
+    day: 1,
+    titleAr: 'اليوم 1 · انطلاقة العرين',
+    primaryItem: 'egg_2',
+    primaryLabelAr: 'بيضتان [2]',
+    secondaryItem: 'cornucopia',
+    secondaryLabelAr: 'حزمة موارد',
+    reward: {
+      corn: 320,
+      stars: 3,
+      eggs: ['egg_2', 'egg_2'],
+      autoMergeBoosters: 1,
+      battlePassXp: 15,
+    },
+  },
+  {
+    day: 2,
+    titleAr: 'اليوم 2 · شرارة التدريب',
+    primaryItem: 'egg_3',
+    primaryLabelAr: 'بيضة نادرة [3]',
+    secondaryItem: 'chalice',
+    secondaryLabelAr: 'طاقة ونجوم',
+    reward: {
+      corn: 420,
+      stars: 5,
+      eggs: ['egg_3'],
+      keys: 1,
+      battlePassXp: 20,
+    },
+  },
+  {
+    day: 3,
+    titleAr: 'اليوم 3 · بركة المعبد',
+    primaryItem: 'egg_3',
+    primaryLabelAr: 'بيضتان [3]',
+    secondaryItem: 'grapes',
+    secondaryLabelAr: 'قلوب المعبد',
+    reward: {
+      corn: 520,
+      stars: 6,
+      hearts: 60,
+      eggs: ['egg_3', 'egg_3'],
+      hammerBoosters: 1,
+      battlePassXp: 25,
+    },
+  },
+  {
+    day: 4,
+    titleAr: 'اليوم 4 · زحف العاصفة',
+    primaryItem: 'egg_4',
+    primaryLabelAr: 'بيضة زمرد [4]',
+    secondaryItem: 'egg_2',
+    secondaryLabelAr: 'أوسمة الحلبة',
+    reward: {
+      corn: 650,
+      stars: 8,
+      medals: 25,
+      eggs: ['egg_4'],
+      autoMergeBoosters: 1,
+      battlePassXp: 30,
+    },
+  },
+  {
+    day: 5,
+    titleAr: 'اليوم 5 · خزانة الجواهر',
+    primaryItem: 'egg_5',
+    primaryLabelAr: 'بيضة جمشت [5]',
+    secondaryItem: 'feast',
+    secondaryLabelAr: 'ذهب التنانين',
+    reward: {
+      corn: 800,
+      stars: 10,
+      duckGold: 3,
+      eggs: ['egg_5'],
+      keys: 1,
+      battlePassXp: 35,
+    },
+  },
+  {
+    day: 6,
+    titleAr: 'اليوم 6 · مجد الأبطال',
+    primaryItem: 'egg_5',
+    primaryLabelAr: 'بيضتان [5]',
+    secondaryItem: 'chest',
+    secondaryLabelAr: 'مفاتيح وشرف',
+    reward: {
+      corn: 950,
+      stars: 12,
+      honorLetters: 2,
+      keys: 1,
+      eggs: ['egg_5', 'egg_5'],
+      battlePassXp: 40,
+    },
+  },
+  {
+    day: 7,
+    titleAr: 'اليوم 7 · الذروة الإمبراطورية',
+    primaryItem: 'egg_6',
+    primaryLabelAr: 'بيضة ياقوت [6]',
+    secondaryItem: 'chest',
+    secondaryLabelAr: 'كنز الأسبوع',
+    reward: {
+      corn: 1200,
+      stars: 18,
+      duckGold: 6,
+      keys: 2,
+      eggs: ['egg_6'],
+      autoMergeBoosters: 2,
+      battlePassXp: 60,
+    },
+  },
+];
+
 export const GOD_PATRONS: Record<GodPatronId, { name: string; title: string; color: string }> = {
   anubis: { name: 'أنوبيس', title: 'حارس المعبد', color: '#f59e0b' },
   horus: { name: 'حورس', title: 'سيد السماء', color: '#38bdf8' },
@@ -972,70 +1365,95 @@ export function createInitialMarketListings(): MarketListing[] {
 }
 
 export function createInitialGameState(): GameState {
-  // 3 Open Default Slots occupied by 3 starter dragons (LVL 1..3) — DMD starts strictly at 0!
+  // 3 Open Default Slots occupied chronologically by 3 starter dragons — DMD starts strictly at 0!
+  const now = Date.now();
   const starterDragons: Duck[] = [
     {
-      id: 'dragon_aqua_1',
-      name: 'تنين البحار السماوي',
-      skin: 'aqua',
-      rarity: 'RARE',
+      id: 'dragon_solar_1',
+      name: 'تنين النار الذهبي',
+      skin: 'classic',
+      rarity: 'COMMON',
       level: 1,
       maxLevel: 5,
       customLevel: 0,
       dmd: 0,
       dmdStored: 0,
       slotIndex: 0,
-      feedCost: getFeedCost(1, 'RARE', 1),
+      feedCost: getFeedCost(1, 'COMMON', 1, 0),
       feedsProgress: 0,
-      feedsRequired: 5,
+      feedsRequired: getLevelRequiredFeeds(1),
+      feedClicksSinceReset: 0,
+      costResetEndsAt: null,
+      levelFeedsCompleted: false,
+      breedingEndsAt: null,
+      breedingNextLevel: null,
+      lastBreedingEggAt: null,
       staked: false,
       stakeRatePerHour: 0,
+      sizeTier: 'NORMAL',
+      xl: false,
       skillLevel: 1,
       trainingLevel: 0,
-      powerRating: 240,
-      unlockedAt: Date.now() - 95000000,
+      powerRating: 125,
+      unlockedAt: now - 95000000,
     },
     {
-      id: 'dragon_lilac_1',
-      name: 'تنين السديم الليلكي',
-      skin: 'lilac',
-      rarity: 'EPIC',
+      id: 'dragon_aqua_1',
+      name: 'تنين البحار السماوي',
+      skin: 'aqua',
+      rarity: 'UNCOMMON',
       level: 2,
       maxLevel: 5,
       customLevel: 0,
       dmd: 0,
       dmdStored: 0,
       slotIndex: 1,
-      feedCost: getFeedCost(2, 'EPIC', 1),
-      feedsProgress: 2,
-      feedsRequired: 7,
+      feedCost: getFeedCost(2, 'UNCOMMON', 1, 0),
+      feedsProgress: 12,
+      feedsRequired: getLevelRequiredFeeds(2),
+      feedClicksSinceReset: 0,
+      costResetEndsAt: null,
+      levelFeedsCompleted: false,
+      breedingEndsAt: null,
+      breedingNextLevel: null,
+      lastBreedingEggAt: null,
       staked: false,
       stakeRatePerHour: 0,
+      sizeTier: 'NORMAL',
+      xl: false,
       skillLevel: 1,
       trainingLevel: 0,
-      powerRating: 350,
-      unlockedAt: Date.now() - 90000000,
+      powerRating: 210,
+      unlockedAt: now - 90000000,
     },
     {
-      id: 'dragon_solar_1',
-      name: 'تنين النار الذهبي',
-      skin: 'classic',
-      rarity: 'COMMON',
+      id: 'dragon_lilac_1',
+      name: 'تنين السديم الليلكي',
+      skin: 'lilac',
+      rarity: 'RARE',
       level: 3,
       maxLevel: 5,
       customLevel: 0,
       dmd: 0,
       dmdStored: 0,
       slotIndex: 2,
-      feedCost: getFeedCost(3, 'COMMON', 1),
-      feedsProgress: 4,
-      feedsRequired: 9,
+      feedCost: getFeedCost(3, 'RARE', 1, 0),
+      feedsProgress: 18,
+      feedsRequired: getLevelRequiredFeeds(3),
+      feedClicksSinceReset: 0,
+      costResetEndsAt: null,
+      levelFeedsCompleted: false,
+      breedingEndsAt: null,
+      breedingNextLevel: null,
+      lastBreedingEggAt: null,
       staked: false,
       stakeRatePerHour: 0,
+      sizeTier: 'NORMAL',
+      xl: false,
       skillLevel: 2,
       trainingLevel: 0,
-      powerRating: 195,
-      unlockedAt: Date.now() - 86400000,
+      powerRating: 310,
+      unlockedAt: now - 86400000,
     },
   ];
 
@@ -1126,12 +1544,15 @@ export function createInitialGameState(): GameState {
   ];
 
   return {
+    schemaVersion: 3,
     username: 'DRAGON_TAMER',
-    corn: 480, // Calibrated starting Energy to keep progression tense & rewarding
-    stars: 12, // Calculated starting Stars
+    corn: 480,
+    stars: 12,
     duckGold: 4,
-    dmdTotal: 0, // Strictly 0 until a dragon reaches LVL 5 AND Custom_LVL >= 1!
+    dmdTotal: 0,
+    breedingEggs: 2,
     ducks: starterDragons,
+    customizedVault: [],
     activeDuckIndex: 0,
     unlockedSlots: 3, // 3 default open slots out of 8
     treasury: {

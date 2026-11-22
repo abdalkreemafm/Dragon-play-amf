@@ -6,18 +6,27 @@
     --font-sans: 'Cairo', 'Outfit', system-ui, -apple-system, sans-serif;
     --font-display: 'Outfit', 'Cairo', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+    --tg-viewport-stable-height: 100dvh;
   }
 
   html,
   body,
   #root {
-    height: 100%;
+    height: var(--tg-viewport-stable-height, 100%);
     font-family: var(--font-sans);
     background-color: #0b0d14;
     color: #f8fafc;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .font-display {

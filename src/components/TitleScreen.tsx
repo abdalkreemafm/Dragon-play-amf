@@ -1,27 +1,29 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, Play, RotateCcw } from 'lucide-react';
+import { Volume2, VolumeX, Play, ShieldCheck, UserCheck } from 'lucide-react';
 import { DragonIllustration, CornIcon, StarIcon, DmdIcon } from './art/DuckArt';
 import { SanctuaryBackdrop } from './art/SceneBackdrops';
 import { soundFX } from '../utils/sound';
 
 interface TitleScreenProps {
+  username: string;
+  isTelegramVerified?: boolean;
   hasSavedProgress: boolean;
   savedDmd: number;
   savedDuckCount: number;
   muted: boolean;
   onToggleMute: () => void;
   onStart: () => void;
-  onResetNewGame: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
+  username,
+  isTelegramVerified = false,
   hasSavedProgress,
   savedDmd,
   savedDuckCount,
   muted,
   onToggleMute,
   onStart,
-  onResetNewGame,
 }) => {
   const [heroSquash, setHeroSquash] = useState(false);
 
@@ -44,11 +46,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   };
 
   return (
-    <div className="relative h-full w-full flex flex-col items-center justify-between overflow-hidden bg-[#080a10] text-slate-100 select-none px-6 py-8">
-      <SanctuaryBackdrop variant="title" />
+    <div className="relative h-full w-full flex flex-col items-center justify-between overflow-y-auto bg-[#080a10] text-slate-100 select-none px-6 py-8 pt-safe pb-safe">
+      <SanctuaryBackdrop variant="title" evolutionLevel={5} customLevel={50} />
 
       {/* Top minimal utility bar */}
-      <div className="relative z-10 w-full max-w-4xl flex items-center justify-between">
+      <div className="relative z-10 w-full max-w-4xl flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3 text-xs text-slate-400">
           <span className="font-mono-num">DRAGON × DMD</span>
           {hasSavedProgress && (
@@ -63,14 +65,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <button
           onClick={onToggleMute}
           aria-label={muted ? 'تشغيل الصوت' : 'كتم الصوت'}
-          className="h-10 w-10 rounded-xl bg-slate-900/80 border border-slate-700/70 flex items-center justify-center text-slate-200 hover:border-amber-400/60 transition-colors cursor-pointer backdrop-blur-sm"
+          className="h-11 w-11 rounded-xl bg-slate-900/90 border border-slate-700/80 flex items-center justify-center text-slate-200 hover:border-amber-400/60 transition-colors cursor-pointer"
         >
           {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-amber-400" />}
         </button>
       </div>
 
       {/* Hero Centerpiece */}
-      <div className="relative z-10 flex flex-col items-center text-center max-w-xl my-auto">
+      <div className="relative z-10 flex flex-col items-center text-center max-w-xl my-auto py-4">
         <svg viewBox="0 0 460 88" className="w-full max-w-md mb-2 drop-shadow-[0_8px_24px_rgba(245,197,24,0.28)]">
           <defs>
             <linearGradient id="dragonTitleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -98,7 +100,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </text>
         </svg>
 
-        <p className="text-sm sm:text-base text-slate-300 max-w-md mb-6 leading-relaxed">
+        <p className="text-sm sm:text-base text-slate-300 max-w-md mb-5 leading-relaxed">
           ربِّ التنانين، أطعمها حبوب الطاقة حتى المرحلة 5، خصّصها بالنجوم لتوليد عملة DMD، ونافس في الحلبة!
         </p>
 
@@ -106,30 +108,36 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <button
           type="button"
           onClick={handleHeroTap}
-          className="relative group cursor-pointer focus:outline-none mb-6"
+          className="relative group cursor-pointer focus:outline-none mb-5"
           aria-label="التنين الرئيسي"
         >
-          <div className="absolute -inset-8 rounded-full bg-amber-400/15 blur-2xl group-hover:bg-amber-400/25 transition-colors" />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-8 rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.22)_0%,transparent_72%)]"
+          />
           <div className="relative w-64 h-52 sm:w-72 sm:h-56">
             <div className="relative w-full h-full rounded-[32px] realistic-card border border-amber-400/35 flex items-center justify-center overflow-hidden px-3">
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-8 bottom-4 h-7 rounded-full bg-amber-400/15 blur-md"
+                className="pointer-events-none absolute inset-x-8 bottom-3 h-7 rounded-full bg-[radial-gradient(ellipse,rgba(251,191,36,0.22)_0%,transparent_75%)]"
               />
-              <div className="relative z-10 flex items-end justify-center gap-0">
+              <div className="relative z-10 flex items-end justify-center gap-1">
                 <DragonIllustration
                   skin="aqua"
                   level={3}
+                  customLevel={10}
                   showEvolutionEffects={true}
-                  className="w-32 h-32 sm:w-36 sm:h-36 -ml-2"
+                  className="w-28 h-28 sm:w-32 sm:h-32 scale-x-[-1]"
                   isPressed={heroSquash}
                 />
                 <DragonIllustration
                   skin="lilac"
                   level={5}
-                  customLevel={2}
+                  customLevel={50}
+                  gear="crown"
+                  aura="gold"
                   showEvolutionEffects={true}
-                  className="w-32 h-32 sm:w-36 sm:h-36 -mr-2"
+                  className="w-28 h-28 sm:w-32 sm:h-32"
                   isPressed={heroSquash}
                 />
               </div>
@@ -146,41 +154,52 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
         </button>
 
-        {/* Start Actions */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
+        {/* Identity Verification & Saved Data Card */}
+        <div className="w-full max-w-sm rounded-2xl bg-slate-900/85 border border-emerald-500/30 px-4 py-3 mb-4 flex items-center justify-between gap-3 text-right shadow-lg">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shrink-0">
+              {isTelegramVerified ? <ShieldCheck className="w-5 h-5" /> : <UserCheck className="w-5 h-5" />}
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-extrabold text-white truncate">@{username}</div>
+              <div className="text-[11px] font-bold text-emerald-300">
+                {isTelegramVerified ? 'هوية تيليجرام مؤكدة ✓' : 'ملف الحفظ التلقائي للمتصفح ✓'}
+              </div>
+            </div>
+          </div>
+          <div className="text-left shrink-0">
+            <div className="text-[11px] font-mono-num font-extrabold text-amber-300">
+              {savedDmd.toFixed(2)} DMD
+            </div>
+            <div className="text-[10px] font-bold text-slate-400">
+              {savedDuckCount} تنانين محفوظة
+            </div>
+          </div>
+        </div>
+
+        {/* Single Safe Entry Action */}
+        <div className="flex items-center justify-center w-full">
           <button
             onClick={() => {
+              soundFX.unlock();
               soundFX.playGodConfirm();
               onStart();
             }}
-            className="flex items-center gap-2.5 px-8 py-3.5 rounded-2xl bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-extrabold text-lg shadow-[0_8px_28px_rgba(250,204,21,0.35)] hover:brightness-105 active:scale-95 transition-all cursor-pointer"
+            className="flex items-center justify-center gap-2.5 w-full max-w-xs px-8 py-4 rounded-2xl bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-black text-lg shadow-[0_8px_28px_rgba(250,204,21,0.35)] hover:brightness-105 active:scale-95 transition-all cursor-pointer"
           >
             <Play className="w-5 h-5 fill-slate-950" />
-            <span>{hasSavedProgress ? 'متابعة اللعب' : 'ابدأ اللعب'}</span>
+            <span>{hasSavedProgress ? 'متابعة اللعب' : 'دخول اللعبة'}</span>
           </button>
-
-          {hasSavedProgress && (
-            <button
-              onClick={() => {
-                soundFX.playTabSwitch();
-                onResetNewGame();
-              }}
-              className="flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-slate-800/90 border border-slate-700 text-slate-200 font-bold text-sm hover:border-slate-500 active:scale-95 transition-all cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>لعبة جديدة</span>
-            </button>
-          )}
         </div>
       </div>
 
       {/* Single flat control-hint line */}
-      <div className="relative z-10 text-xs sm:text-sm text-slate-400 text-center">
+      <div className="relative z-10 text-xs sm:text-sm text-slate-400 text-center shrink-0">
         <span>أطعم التنين بالطاقة</span>
         <span className="mx-2" aria-hidden="true">·</span>
         <span>خصّصه بالنجوم عند المرحلة 5</span>
         <span className="mx-2" aria-hidden="true">·</span>
-        <span>Enter للبدء</span>
+        <span>تقدمك محفوظ تلقائياً</span>
       </div>
     </div>
   );

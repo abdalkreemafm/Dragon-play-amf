@@ -15,11 +15,13 @@ import {
   DUCK_SKILLS,
   LEAGUE_TIERS,
   RARITY_STYLE,
+  RIVALS_CATALOG,
   WEEKEND_EVENTS,
   getDuckCombatStats,
   getLeagueMeta,
 } from '../../data/gameData';
-import { ECONOMY_LIMITS, getArenaEntryCost } from '../../utils/economyEngine';
+import { ECONOMY_LIMITS, getArenaEntryCost, resolveEventModifiers } from '../../utils/economyEngine';
+import { triggerTelegramHaptic } from '../../utils/telegram';
 import { CornIcon, DragonIllustration, GoldIcon, StarIcon } from '../art/DuckArt';
 import { ColosseumBackdrop } from '../art/SceneBackdrops';
 import { ArenaVfxCanvas, ArenaVfxHandle } from '../art/ArenaVfxCanvas';
@@ -29,28 +31,33 @@ interface ArenaTabProps {
   state: GameState;
   onSpendArenaEntry: (cost: number) => boolean;
   onRefundArenaEntry?: (amount: number) => void;
-  onBattleResult: (won: boolean, rewardCorn: number, rewardStars: number, leaguePts: number, xp: number, gold: number) => void;
+  onBattleResult: (
+    won: boolean,
+    rewardCorn: number,
+    rewardStars: number,
+    leaguePts: number,
+    xp: number,
+    gold: number,
+    rewardMedals?: number
+  ) => void;
   onRaceResult: (place: number, rewardCorn: number, rewardStars: number, leaguePts: number, xp: number) => void;
   onClaimDailyLeague: () => void;
   onRotateWeekendEvent: () => void;
 }
 
-interface RivalProfile {
-  name: string;
-  skin: DuckSkinId;
-  maxHp: number;
-  attackPower: number;
-  rewardCorn: number;
-  rewardStars: number;
-  leaguePts: number;
-}
-
-const RIVALS: RivalProfile[] = [
-  { name: 'DRACO_SCOUT', skin: 'classic', maxHp: 220, attackPower: 14, rewardCorn: 220, rewardStars: 3, leaguePts: 25 },
-  { name: 'DARK_WYVERN', skin: 'skeleton', maxHp: 310, attackPower: 20, rewardCorn: 360, rewardStars: 5, leaguePts: 40 },
-  { name: 'ZLOY_IGNIS', skin: 'ninja', maxHp: 420, attackPower: 26, rewardCorn: 540, rewardStars: 8, leaguePts: 55 },
-  { name: 'SOLA_EMPEROR', skin: 'pharaoh', maxHp: 560, attackPower: 33, rewardCorn: 780, rewardStars: 11, leaguePts: 75 },
-];
+const ARENA_RIVALS = RIVALS_CATALOG.map((rv, idx) => ({
+  id: rv.id,
+  name: rv.name,
+  skin: rv.skin,
+  maxHp: rv.baseHp,
+  attackPower: rv.baseAtk,
+  rewardCorn: rv.cornReward,
+  rewardStars: rv.starReward,
+  medalReward: rv.medalReward,
+  leaguePts: [25, 40, 55, 75][idx] ?? 75,
+  visualLevel: Math.min(5, 2 + idx),
+  visualCustomLevel: idx >= 2 ? 7 : 3,
+}));
 
 export const ArenaTab: React.FC<ArenaTabProps> = ({
   state,
@@ -95,8 +102,9 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
   const duckSkill = DUCK_SKILLS[activeDuck.skin];
   const leagueMeta = getLeagueMeta(state.league.points);
   const nextLeague = LEAGUE_TIERS[LEAGUE_TIERS.findIndex((t) => t.tier === leagueMeta.tier) + 1];
-  const rival = RIVALS[selectedRivalIdx] ?? RIVALS[0];
+  const rival = ARENA_RIVALS[selectedRivalIdx] ?? ARENA_RIVALS[0];
   const activeEvent = WEEKEND_EVENTS[state.weekendEventIndex % WEEKEND_EVENTS.length];
+  const eventMods = resolveEventModifiers(activeEvent);
 
   const combatStats = getDuckCombatStats(
     activeDuck,
@@ -222,15 +230,18 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
         const mult = fullWinsToday < ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS ? 1 : ECONOMY_LIMITS.ARENA_AFTER_CAP_RATIO;
         if (won) {
           soundFX.playVictory();
-          const finalCorn = Math.round(rival.rewardCorn * mult);
-          const finalStars = Math.max(1, Math.round(rival.rewardStars * activeEvent.starBonusMult * mult));
+          triggerTelegramHaptic('success');
+          const finalCorn = Math.round(rival.rewardCorn * eventMods.arenaEnergyMult * mult);
+          const finalStars = Math.max(1, Math.round(rival.rewardStars * eventMods.starBonusMult * mult));
+          const finalMedals = Math.max(1, Math.round(rival.medalReward * mult));
           setDuelOutcome({
             won: true,
-            text: `انتصار ساحق على ${rival.name}! +${finalCorn.toLocaleString()} طاقة و +${finalStars} ★`,
+            text: `انتصار ساحق على ${rival.name}! +${finalCorn.toLocaleString()} طاقة و +${finalStars} ★ و +${finalMedals} 🏅`,
           });
-          onBattleResult(true, rival.rewardCorn, rival.rewardStars, rival.leaguePts, 65, 2);
+          onBattleResult(true, rival.rewardCorn, rival.rewardStars, rival.leaguePts, 65, 2, rival.medalReward);
         } else {
           soundFX.playDefeat();
+          triggerTelegramHaptic('error');
           setDuelOutcome({
             won: false,
             text: `خسرت النزال أمام ${rival.name}! جرّب توقيت الصدّ المضاد (+25 طاقة مواساة).`,
@@ -246,7 +257,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
 
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [duelPhase, rival, activeEvent.starBonusMult, onBattleResult, state.treasury.arenaFullWinsToday]);
+  }, [duelPhase, rival, eventMods.starBonusMult, eventMods.arenaEnergyMult, onBattleResult, state.treasury.arenaFullWinsToday]);
 
   const handlePlayerStrike = () => {
     if (duelPhase !== 'FIGHTING') return;
@@ -262,12 +273,14 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
 
     if (isCrit) {
       soundFX.playCritHit();
+      triggerTelegramHaptic('medium');
       setDuelShake(true);
       setHitBanner(`حرج -${dmg}!`);
       vfxRef.current?.spawnAttack('CRIT', `حرج -${dmg}!`);
       setTimeout(() => setDuelShake(false), 180);
     } else {
       soundFX.playTapFeed();
+      triggerTelegramHaptic('light');
       setHitBanner(`-${dmg}`);
       vfxRef.current?.spawnAttack('FIREBALL', `-${dmg}`);
     }
@@ -288,6 +301,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
       d.eHp = Math.max(0, d.eHp - counterDmg);
       setEnemyHp(Math.ceil(d.eHp));
       soundFX.playParry();
+      triggerTelegramHaptic('heavy');
       setParriedFlash(true);
       setDuelShake(true);
       setHitBanner(`صد مضاد حاسم! -${counterDmg} 🛡️`);
@@ -684,9 +698,9 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
               <div>
                 <div className="text-xs font-bold text-slate-400 mb-2">اختر منافسك في الحلبة:</div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {RIVALS.map((rv, idx) => (
+                  {ARENA_RIVALS.map((rv, idx) => (
                     <button
-                      key={rv.name}
+                      key={rv.id}
                       onClick={() => {
                         soundFX.playTabSwitch();
                         setSelectedRivalIdx(idx);
@@ -697,10 +711,21 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                           : 'bg-slate-900/70 border-slate-800 hover:border-slate-600'
                       }`}
                     >
-                      <DragonIllustration skin={rv.skin} className="w-14 h-14 mx-auto" mood="battle" />
+                      <DragonIllustration
+                        skin={rv.skin}
+                        level={rv.visualLevel}
+                        customLevel={rv.visualCustomLevel}
+                        showEvolutionEffects={true}
+                        className="w-14 h-14 mx-auto"
+                        mood="battle"
+                      />
                       <div className="text-[11px] font-black text-white truncate mt-1">{rv.name}</div>
-                      <div className="text-[10px] font-mono-num text-emerald-400">+{rv.rewardCorn.toLocaleString()} طاقة</div>
-                      <div className="text-[10px] font-mono-num text-indigo-300">+{rv.rewardStars * activeEvent.starBonusMult} ★ · +{rv.leaguePts} 🏆</div>
+                      <div className="text-[10px] font-mono-num text-emerald-400">
+                        +{Math.round(rv.rewardCorn * eventMods.arenaEnergyMult).toLocaleString()} طاقة
+                      </div>
+                      <div className="text-[10px] font-mono-num text-indigo-300">
+                        +{rv.rewardStars * eventMods.starBonusMult} ★ · +{rv.medalReward} 🏅 · +{rv.leaguePts} 🏆
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -815,7 +840,14 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                   <div className="font-mono-num text-[11px] text-rose-300 mb-2">
                     {enemyHp} / {enemyMaxHp} HP
                   </div>
-                  <DragonIllustration skin={rival.skin} className="w-28 h-28 mx-auto scale-x-[-1]" mood="battle" />
+                  <DragonIllustration
+                    skin={rival.skin}
+                    level={rival.visualLevel}
+                    customLevel={rival.visualCustomLevel}
+                    showEvolutionEffects={true}
+                    className="w-28 h-28 mx-auto scale-x-[-1]"
+                    mood="battle"
+                  />
                 </div>
               </div>
 
@@ -929,13 +961,13 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
               </p>
               <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto text-xs font-mono-num">
                 <div className="p-2.5 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold">
-                  المركز 1: 320⚡ + {5 * activeEvent.starBonusMult} ★
+                  المركز 1: {Math.round(320 * eventMods.arenaEnergyMult)}⚡ + {5 * eventMods.starBonusMult} ★
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold">
-                  المركز 2: 190⚡ + {2 * activeEvent.starBonusMult} ★
+                  المركز 2: {Math.round(190 * eventMods.arenaEnergyMult)}⚡ + {2 * eventMods.starBonusMult} ★
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-900 text-slate-400 font-bold">
-                  المركز 3: 95⚡ + {1 * activeEvent.starBonusMult} ★
+                  المركز 3: {Math.round(95 * eventMods.arenaEnergyMult)}⚡ + {1 * eventMods.starBonusMult} ★
                 </div>
               </div>
               <button
@@ -973,23 +1005,26 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                   </div>
                   <div className="relative h-9 rounded-xl bg-slate-950/90 border border-slate-800 overflow-hidden flex items-center px-2">
                     <div
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-2.5 rounded-r-full transition-all duration-75 ${
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 h-2.5 rounded-l-full transition-all duration-75 ${
                         lane.isYou && raceTurboSec > 0
-                          ? 'bg-gradient-to-r from-rose-500 via-amber-400 to-yellow-200'
+                          ? 'bg-gradient-to-l from-rose-500 via-amber-400 to-yellow-200'
                           : lane.isYou
-                            ? 'bg-gradient-to-r from-sky-500/40 to-amber-400/80'
+                            ? 'bg-gradient-to-l from-sky-500/40 to-amber-400/80'
                             : 'bg-slate-700/50'
                       }`}
                       style={{ width: `${Math.min(90, lane.pos)}%` }}
                     />
                     <div
-                      className="absolute left-2 top-1/2 -translate-y-1/2 transition-all duration-75"
-                      style={{ left: `calc(${Math.min(88, lane.pos)}% + 4px)` }}
+                      className="absolute top-1/2 -translate-y-1/2 transition-all duration-75"
+                      style={{ right: `calc(${Math.min(86, lane.pos)}% + 4px)` }}
                     >
                       <DragonIllustration
                         skin={lane.skin}
+                        level={lane.isYou ? activeDuck.level : 4}
+                        customLevel={lane.isYou ? activeDuck.customLevel : 0}
                         gear={lane.isYou ? activeDuck.gear : undefined}
                         aura={lane.isYou ? activeDuck.aura : undefined}
+                        showEvolutionEffects={lane.isYou}
                         className="w-8 h-8"
                       />
                     </div>

@@ -1,9 +1,14 @@
 import {
+  DragonSize,
   Duck,
+  EventModifiers,
   GameState,
+  LiveEventConfig,
   MainTab,
   Rarity,
+  RewardBundle,
   SquadTalentKey,
+  StarEvolutionTierMeta,
   TreasuryState,
 } from '../types/game';
 
@@ -22,7 +27,77 @@ export const ECONOMY_LIMITS = {
   RACE_ENTRY_COST: 55,
   MAX_TALENT_RANK: 20,
   MAX_DAILY_INVITE_CLAIMS: 3,
+  MAX_CUSTOM_STAR_LEVEL: 10,
+  FEED_RESET_DURATION_MS: 8 * 3600 * 1000,
+  BREEDING_DURATION_MS: 24 * 3600 * 1000,
+  BREEDING_EGG_INTERVAL_MS: 15 * 60 * 1000,
 } as const;
+
+export const STAR_EVOLUTION_TIERS: StarEvolutionTierMeta[] = [
+  {
+    minStar: 0,
+    nameAr: 'فطري',
+    subtitleAr: 'التكوين الأساسي للتنين قبل التخصيص',
+    auraColorHex: '#94a3b8',
+    badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-600/60',
+  },
+  {
+    minStar: 1,
+    nameAr: 'يافع ★1',
+    subtitleAr: 'بداية فتح قيمة DMD في المحفظة',
+    auraColorHex: '#38bdf8',
+    badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-400/50',
+  },
+  {
+    minStar: 3,
+    nameAr: 'مصقول ★3',
+    subtitleAr: 'تشققات طاقة مصقولة وتوهج حراشف',
+    auraColorHex: '#34d399',
+    badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/60',
+  },
+  {
+    minStar: 5,
+    nameAr: 'عتيق ★5',
+    subtitleAr: 'أشواك رونية متوهجة ونصف قيمة التنين',
+    auraColorHex: '#a78bfa',
+    badgeClass: 'bg-violet-500/20 text-violet-300 border-violet-400/60',
+  },
+  {
+    minStar: 7,
+    nameAr: 'نجمي ★7',
+    subtitleAr: 'هالة مدارية مزدوجة ونبض كوني',
+    auraColorHex: '#f59e0b',
+    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-400/60',
+  },
+  {
+    minStar: 9,
+    nameAr: 'سماوي ★9',
+    subtitleAr: 'تاج نوراني قبل الختم النهائي',
+    auraColorHex: '#f43f5e',
+    badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-400/60',
+  },
+  {
+    minStar: 10,
+    nameAr: 'مخصّص ★10',
+    subtitleAr: 'مختوم في الخزانة وجاهز لاستبدال DMD',
+    auraColorHex: '#fde047',
+    badgeClass: 'bg-amber-400/30 text-yellow-200 border-yellow-300/80',
+  },
+];
+
+export function clampCustomLevel(level: number): number {
+  if (!Number.isFinite(level)) return 0;
+  return Math.max(0, Math.min(ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL, Math.floor(level)));
+}
+
+export function getStarTierMeta(customLevel: number): StarEvolutionTierMeta {
+  const lv = clampCustomLevel(customLevel);
+  let active = STAR_EVOLUTION_TIERS[0];
+  for (const tier of STAR_EVOLUTION_TIERS) {
+    if (lv >= tier.minStar) active = tier;
+  }
+  return active;
+}
 
 export const RARITY_FEED_MULT: Record<Rarity, number> = {
   COMMON: 1.0,
@@ -32,6 +107,57 @@ export const RARITY_FEED_MULT: Record<Rarity, number> = {
   LEGENDARY: 3.0,
 };
 
+export const RARITY_INDEX_ORDER: Rarity[] = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'];
+
+// Exact 5-tier DMD pricing at Customization ★10 + XL / XXL ladder multipliers:
+// عادي 15 | نادر 45 | ملحمي 120 | أسطوري 350 | خرافي 1000 | XL+خرافي 2500 | XXL+خرافي 6500
+export const BASE_DMD_PRICE_BY_RARITY: Record<Rarity, number> = {
+  COMMON: 15,
+  UNCOMMON: 45,
+  RARE: 120,
+  EPIC: 350,
+  LEGENDARY: 1000,
+};
+
+export const DMD_PRICE_LADDER = [15, 45, 120, 350, 1000, 2500, 6500] as const;
+
+export function resolveDragonSize(dragon?: Pick<Duck, 'sizeTier' | 'xl'> | null): DragonSize {
+  if (!dragon) return 'NORMAL';
+  if (dragon.sizeTier === 'XXL') return 'XXL';
+  if (dragon.sizeTier === 'XL' || dragon.xl) return 'XL';
+  return 'NORMAL';
+}
+
+export function getDragonMaxDmdPrice(rarity: Rarity, size: DragonSize = 'NORMAL'): number {
+  const baseIdx = Math.max(0, RARITY_INDEX_ORDER.indexOf(rarity));
+  const sizeOffset = size === 'XXL' ? 2 : size === 'XL' ? 1 : 0;
+  const targetIdx = Math.min(DMD_PRICE_LADDER.length - 1, baseIdx + sizeOffset);
+  return DMD_PRICE_LADDER[targetIdx];
+}
+
+// Cumulative percentage unlocked across ★0..10 steps (strictly reaches 100% at ★10)
+const CUSTOM_STEP_CUMULATIVE_PCT = [0, 5, 11, 18, 26, 35, 45, 57, 70, 84, 100] as const;
+
+export function getCumulativeDmdAtCustomLevel(
+  rarity: Rarity,
+  size: DragonSize,
+  customLevel: number
+): number {
+  const lv = clampCustomLevel(customLevel);
+  const maxPrice = getDragonMaxDmdPrice(rarity, size);
+  const pct = CUSTOM_STEP_CUMULATIVE_PCT[lv] ?? 0;
+  return Math.round(maxPrice * (pct / 100) * 100) / 100;
+}
+
+export function getNextCustomDmdGain(dragon: Pick<Duck, 'rarity' | 'sizeTier' | 'xl' | 'customLevel'>): number {
+  const lv = clampCustomLevel(dragon.customLevel);
+  if (lv >= ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL) return 0;
+  const size = resolveDragonSize(dragon);
+  const cur = getCumulativeDmdAtCustomLevel(dragon.rarity, size, lv);
+  const nxt = getCumulativeDmdAtCustomLevel(dragon.rarity, size, lv + 1);
+  return Math.max(0, Math.round((nxt - cur) * 100) / 100);
+}
+
 export function getLocalDateKey(now = new Date()): string {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
@@ -40,8 +166,7 @@ export function getLocalDateKey(now = new Date()): string {
 }
 
 /**
- * Exact Player Tier formula (1..10):
- * playerTier = min(10, 1 + floor(sumOfDragonLevels / 4 + (unlockedSlots - 3)))
+ * Exact Player Tier formula (1..10)
  */
 export function getPlayerTier(state: Pick<GameState, 'ducks' | 'unlockedSlots'>): number {
   const totalLevels = state.ducks.reduce((acc, d) => acc + Math.max(1, d.level), 0);
@@ -49,41 +174,178 @@ export function getPlayerTier(state: Pick<GameState, 'ducks' | 'unlockedSlots'>)
   return Math.max(1, Math.min(10, raw));
 }
 
-/**
- * Progressive scale factor:
- * tierScale = 1 + 0.18 * (playerTier - 1)
- */
 export function getTierScale(playerTier: number): number {
   return 1 + 0.18 * Math.max(0, playerTier - 1);
 }
 
-/**
- * Legacy helper kept for reference; main dragon feeding uses calculateDragonFeedCost.
- */
-export function calculateFeedCost(level: number): number {
-  return Math.ceil(28 * Math.pow(1.48, Math.max(0, level - 1)));
+export interface LevelFeedScheduleRule {
+  level: number;
+  startCost: number;
+  stepBlock: number;
+  stages: [number, number, number];
+  postStepInc: number;
+  requiredClicks: number;
 }
 
-/**
- * Rarity & Tier-Aware Feeding Cost Formula (strictly net deduction, zero energy refund):
- * ceil(28 * 1.48^(LVL - 1) * M_R * (1 + 0.10 * (T - 1)))
- */
+// Exact 5-Level Feeding Schedule:
+// LVL 1: 100 clicks | 1 -> 2 (15) -> 3 (15) -> +3 per click
+// LVL 2: 200 clicks | 2 -> 4 (20) -> 8 (20) -> +2 per click
+// LVL 3: 300 clicks | 3 -> 6 (30) -> 12 (30) -> +3 per click
+// LVL 4: 400 clicks | 4 -> 8 (40) -> 16 (40) -> +4 per click
+// LVL 5: 500 clicks | 5 -> 10 (50) -> 20 (50) -> +5 per click
+export const LEVEL_FEED_SCHEDULE: Record<number, LevelFeedScheduleRule> = {
+  1: { level: 1, startCost: 1, stepBlock: 15, stages: [1, 2, 3], postStepInc: 3, requiredClicks: 100 },
+  2: { level: 2, startCost: 2, stepBlock: 20, stages: [2, 4, 8], postStepInc: 2, requiredClicks: 200 },
+  3: { level: 3, startCost: 3, stepBlock: 30, stages: [3, 6, 12], postStepInc: 3, requiredClicks: 300 },
+  4: { level: 4, startCost: 4, stepBlock: 40, stages: [4, 8, 16], postStepInc: 4, requiredClicks: 400 },
+  5: { level: 5, startCost: 5, stepBlock: 50, stages: [5, 10, 20], postStepInc: 5, requiredClicks: 500 },
+};
+
+export function getLevelRequiredFeeds(level: number): number {
+  const clamped = Math.max(1, Math.min(5, Math.floor(level || 1)));
+  return LEVEL_FEED_SCHEDULE[clamped].requiredClicks;
+}
+
+export function calculateScheduledFeedCost(
+  level: number,
+  clicksSinceReset = 0,
+  rarity: Rarity = 'COMMON',
+  size: DragonSize = 'NORMAL'
+): number {
+  const clampedLv = Math.max(1, Math.min(5, Math.floor(level || 1)));
+  const rule = LEVEL_FEED_SCHEDULE[clampedLv];
+  const c = Math.max(0, Math.floor(clicksSinceReset));
+
+  let baseCost: number;
+  if (c < rule.stepBlock) {
+    baseCost = rule.stages[0];
+  } else if (c < rule.stepBlock * 2) {
+    baseCost = rule.stages[1];
+  } else if (c < rule.stepBlock * 3) {
+    baseCost = rule.stages[2];
+  } else {
+    const extraClicks = c - rule.stepBlock * 3 + 1;
+    baseCost = rule.stages[2] + extraClicks * rule.postStepInc;
+  }
+
+  const rarityMult = RARITY_FEED_MULT[rarity] ?? 1.0;
+  const sizeMult = size === 'XXL' ? 2.2 : size === 'XL' ? 1.5 : 1.0;
+  return Math.max(1, Math.round(baseCost * rarityMult * sizeMult));
+}
+
+export function calculateFeedCost(level: number): number {
+  return calculateScheduledFeedCost(level, 0, 'COMMON', 'NORMAL');
+}
+
 export function calculateDragonFeedCost(
   level: number,
   rarity: Rarity = 'COMMON',
-  playerTier = 1
+  _playerTier = 1,
+  clicksSinceReset = 0,
+  size: DragonSize = 'NORMAL'
 ): number {
-  const mult = RARITY_FEED_MULT[rarity] ?? 1.0;
-  const tierFactor = 1 + 0.1 * Math.max(0, playerTier - 1);
-  return Math.ceil(28 * Math.pow(1.48, Math.max(0, level - 1)) * mult * tierFactor);
+  return calculateScheduledFeedCost(level, clicksSinceReset, rarity, size);
 }
 
 /**
- * Exact Star Customization Cost Formula:
- * ceil(10 * (1.35)^Custom_LVL)
+ * Breeding Eggs cost to instantly upgrade an XL or XXL dragon by +1 level (LVL 1..4 -> +1)
+ */
+export function getXlEggUpgradeCost(level: number, size: DragonSize): number {
+  if (size === 'NORMAL' || level >= 5) return 0;
+  return size === 'XXL' ? level * 8 : level * 4;
+}
+
+/**
+ * Chronological Acquisition Slot Assignment:
+ * Oldest acquired dragons (lowest unlockedAt) occupy Slots 0 .. unlockedSlots - 1.
+ */
+export function normalizeDragonSlots(ducks: Duck[], unlockedSlots: number): Duck[] {
+  const sorted = [...ducks].sort((a, b) => (a.unlockedAt || 0) - (b.unlockedAt || 0));
+  return sorted.map((d, idx) => ({
+    ...d,
+    slotIndex: idx < unlockedSlots ? idx : null,
+  }));
+}
+
+/**
+ * Exact 10-step Star Customization Cost Formula (★0 -> ★10):
+ * 10★, 20★, 30★, 40★, 50★, 60★, 70★, 80★, 90★, 100★
  */
 export function calculateCustomUpgradeCost(customLevel: number): number {
-  return Math.ceil(10 * Math.pow(1.35, Math.max(0, customLevel)));
+  const lv = clampCustomLevel(customLevel);
+  if (lv >= ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL) return 0;
+  return (lv + 1) * 10;
+}
+
+export function getCustomDmdMultiplier(customLevel: number): number {
+  const lv = clampCustomLevel(customLevel);
+  return 1 + lv * 0.12;
+}
+
+export function resolveEventModifiers(eventConfig?: LiveEventConfig | null): EventModifiers {
+  if (!eventConfig) {
+    return { starBonusMult: 1, arenaEnergyMult: 1, templeEnergyMult: 1, badgeText: 'اعتيادي' };
+  }
+  return {
+    starBonusMult: Math.max(1, eventConfig.starBonusMult),
+    arenaEnergyMult: Math.max(1, eventConfig.arenaEnergyMult),
+    templeEnergyMult: Math.max(1, eventConfig.templeEnergyMult),
+    badgeText: eventConfig.badgeText,
+  };
+}
+
+export function grantRewardBundle(
+  state: GameState,
+  bundle: RewardBundle,
+  options?: { applySoftCap?: boolean; trackDailyEnergy?: boolean }
+): { nextState: GameState; grantedEnergy: number } {
+  const playerTier = getPlayerTier(state);
+  const softCap = getEnergySoftCap(playerTier);
+  const rawCorn = Math.max(0, Math.round(bundle.corn ?? 0));
+  const grantedEnergy =
+    rawCorn > 0
+      ? options?.applySoftCap
+        ? applySoftCapDamping(rawCorn, state.corn, softCap).finalGain
+        : rawCorn
+      : 0;
+  const starsGain = Math.max(0, Math.round(bundle.stars ?? 0));
+  const goldGain = Math.max(0, Math.round(bundle.duckGold ?? 0));
+  const xpGain = Math.max(0, Math.round(bundle.battlePassXp ?? 0));
+
+  const nextState: GameState = {
+    ...state,
+    corn: state.corn + grantedEnergy,
+    stars: state.stars + starsGain,
+    duckGold: state.duckGold + goldGain,
+    eggQueue: bundle.eggs?.length ? [...state.eggQueue, ...bundle.eggs] : state.eggQueue,
+    battlePass:
+      xpGain > 0
+        ? { ...state.battlePass, xp: state.battlePass.xp + xpGain }
+        : state.battlePass,
+    tournament:
+      bundle.tournamentScore && bundle.tournamentScore > 0
+        ? { ...state.tournament, score: state.tournament.score + bundle.tournamentScore }
+        : state.tournament,
+    stats: {
+      ...state.stats,
+      medals: state.stats.medals + (bundle.medals ?? 0),
+      hearts: state.stats.hearts + (bundle.hearts ?? 0),
+      keys: state.stats.keys + (bundle.keys ?? 0),
+      honorLetters: state.stats.honorLetters + (bundle.honorLetters ?? 0),
+      coinsOfChange: state.stats.coinsOfChange + (bundle.coinsOfChange ?? 0),
+      autoMergeBoosters: state.stats.autoMergeBoosters + (bundle.autoMergeBoosters ?? 0),
+      hammerBoosters: state.stats.hammerBoosters + (bundle.hammerBoosters ?? 0),
+    },
+    treasury: {
+      ...state.treasury,
+      energyEarnedToday:
+        (state.treasury.energyEarnedToday ?? 0) +
+        (options?.trackDailyEnergy === false ? 0 : grantedEnergy),
+      starsEarnedToday: (state.treasury.starsEarnedToday ?? 0) + starsGain,
+    },
+  };
+
+  return { nextState, grantedEnergy };
 }
 
 /**
@@ -374,13 +636,17 @@ export function syncDailyEconomyState(state: GameState): GameState {
     },
     stats: {
       ...state.stats,
+      dailyPassDay: state.stats.dailyPassClaimedToday
+        ? ((Math.max(1, state.stats.dailyPassDay || 1)) % 7) + 1
+        : Math.min(7, Math.max(1, state.stats.dailyPassDay || 1)),
       dailyPassClaimedToday: false,
     },
   };
 }
 
 export type AdvisorActionType =
-  | 'COLLECT_DMD'
+  | 'START_BREEDING'
+  | 'UPGRADE_XL_EGG'
   | 'CUSTOMIZE_STAR'
   | 'UNLOCK_SLOT'
   | 'TRAIN_DRAGON'
@@ -407,34 +673,54 @@ export interface NextStepAdvice {
 export function evaluateNextStepAdvice(
   state: GameState,
   timedBonusReadyIn: number,
-  getRatePerHour: (d: Duck) => number,
-  getMaxCap: (d: Duck) => number,
+  _getRatePerHour: (d: Duck) => number,
+  _getMaxCap: (d: Duck) => number,
   checkSlotUnlock: (slotIdx: number, st: GameState) => { canUnlock: boolean; metCondition: boolean; reason: string },
-  feedCostResolver: (level: number, rarity?: Rarity, playerTier?: number) => number
+  _feedCostResolver: (level: number, rarity?: Rarity, playerTier?: number) => number
 ): NextStepAdvice {
   const playerTier = getPlayerTier(state);
   const softCap = getEnergySoftCap(playerTier);
   const active = state.ducks[state.activeDuckIndex] ?? state.ducks[0];
 
-  // 1. Check any dragon near >= 80% DMD storage cap so generation doesn't stall
-  for (let i = 0; i < state.ducks.length; i++) {
-    const d = state.ducks[i];
-    const rate = getRatePerHour(d);
-    const cap = getMaxCap(d);
-    if (rate > 0 && cap > 0 && d.dmdStored / cap >= 0.8) {
-      return {
-        id: `collect_${d.id}`,
-        priority: 'URGENT',
-        title: `خزان ${d.name} أوشك على الامتلاء`,
-        reason: `اجمع +${d.dmdStored.toFixed(3)} DMD الآن حتى لا يتوقف التوليد عند السقف.`,
-        ctaLabel: 'جمع DMD',
-        action: 'COLLECT_DMD',
-        targetDuckIndex: i,
-      };
-    }
+  // 1. Dragon completed feeding for LVL 1..4 and ready to open 24h breeding gate
+  const readyBreedIdx = state.ducks.findIndex(
+    (d) => d.level < 5 && d.feedsProgress >= d.feedsRequired && !d.breedingEndsAt
+  );
+  if (readyBreedIdx >= 0) {
+    const target = state.ducks[readyBreedIdx];
+    return {
+      id: `breed_gate_${target.id}`,
+      priority: 'URGENT',
+      title: `بوابة التزاوج جاهزة لـ ${target.name}`,
+      reason: `أكمل إطعام المستوى ${target.level}! ابدأ تزاوج 24 ساعة للانتقال إلى LVL ${target.level + 1} وكسب بيضة كل 15د.`,
+      ctaLabel: 'بدء التزاوج (24س)',
+      action: 'START_BREEDING',
+      targetDuckIndex: readyBreedIdx,
+    };
   }
 
-  // 2. Ready to unlock next squad slot
+  // 2. XL/XXL dragon can be upgraded with Breeding Eggs
+  const eggUpgradeIdx = state.ducks.findIndex((d) => {
+    const sz = resolveDragonSize(d);
+    if (sz === 'NORMAL' || d.level >= 5) return false;
+    return (state.breedingEggs ?? 0) >= getXlEggUpgradeCost(d.level, sz);
+  });
+  if (eggUpgradeIdx >= 0) {
+    const target = state.ducks[eggUpgradeIdx];
+    const sz = resolveDragonSize(target);
+    const reqEggs = getXlEggUpgradeCost(target.level, sz);
+    return {
+      id: `xl_egg_up_${target.id}`,
+      priority: 'URGENT',
+      title: `ترقية ${target.name} (${sz}) ببيض التزاوج`,
+      reason: `لديك ${state.breedingEggs ?? 0} بيضة تزاوج! استخدم ${reqEggs} بيضة للترقية الفورية إلى LVL ${target.level + 1}.`,
+      ctaLabel: `ترقية (${reqEggs} 🥚)`,
+      action: 'UPGRADE_XL_EGG',
+      targetDuckIndex: eggUpgradeIdx,
+    };
+  }
+
+  // 3. Ready to unlock next squad slot
   if (state.unlockedSlots < 8) {
     const nextSlot = state.unlockedSlots;
     const slotCheck = checkSlotUnlock(nextSlot, state);
@@ -443,7 +729,7 @@ export function evaluateNextStepAdvice(
         id: `unlock_slot_${nextSlot}`,
         priority: 'URGENT',
         title: `الخانة ${nextSlot + 1} جاهزة للفتح الآن!`,
-        reason: 'استثمر نجومك لتوسيع السرب وزيادة طاقتك الإنتاجية.',
+        reason: 'استثمر نجومك لتوسيع السرب حسب أقدمية الحصول على التنانين.',
         ctaLabel: `فتح الخانة ${nextSlot + 1}`,
         action: 'UNLOCK_SLOT',
         targetSlotIndex: nextSlot,
@@ -451,7 +737,7 @@ export function evaluateNextStepAdvice(
     }
   }
 
-  // 3. Soft-cap guard: suggest burning Energy in Dragon Training or Squad Talents
+  // 4. Soft-cap guard: suggest burning Energy in Dragon Training or Squad Talents
   if (active && state.corn >= softCap * 0.85) {
     const trainCost = getDragonTrainingCost(active.trainingLevel ?? 0, playerTier);
     if (state.corn >= trainCost) {
@@ -459,7 +745,7 @@ export function evaluateNextStepAdvice(
         id: `train_softcap_${active.id}`,
         priority: 'URGENT',
         title: 'طاقتك تقترب من سقف الخزانة!',
-        reason: `درّب ${active.name} الآن (${trainCost.toLocaleString()}⚡) لرفع الصحة والهجوم قبل تباطؤ التدفق.`,
+        reason: `درّب ${active.name} الآن (${trainCost.toLocaleString()}⚡) لرفع الصحة والهجوم.`,
         ctaLabel: `تدريب القوة (${trainCost}⚡)`,
         action: 'TRAIN_DRAGON',
       };
@@ -468,29 +754,32 @@ export function evaluateNextStepAdvice(
       id: 'talent_softcap',
       priority: 'HIGH',
       title: 'استثمر فائض الطاقة في مواهب السرب',
-      reason: 'طوّر مواهب السرب لحرق الفائض ورفع قوة كل التنانين قبل التحديث القادم.',
+      reason: 'طوّر مواهب السرب لحرق الفائض ورفع قوة كل التنانين.',
       ctaLabel: 'مواهب السرب',
       action: 'UPGRADE_TALENT',
     };
   }
 
-  // 4. Dragon at LVL 5 with customLevel === 0 and enough stars to activate DMD
-  const starGateCost = calculateCustomUpgradeCost(0);
-  const frozenLv5Idx = state.ducks.findIndex((d) => d.level >= 5 && d.customLevel === 0);
-  if (frozenLv5Idx >= 0 && state.stars >= starGateCost) {
-    const target = state.ducks[frozenLv5Idx];
+  // 5. Dragon at LVL 5 ready for Star Customization ★1..10 toward DMD exchange value
+  const customIdx = state.ducks.findIndex(
+    (d) => d.level >= 5 && d.customLevel < ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL && state.stars >= calculateCustomUpgradeCost(d.customLevel)
+  );
+  if (customIdx >= 0) {
+    const target = state.ducks[customIdx];
+    const starCost = calculateCustomUpgradeCost(target.customLevel);
+    const dmdGain = getNextCustomDmdGain(target);
     return {
       id: `custom_star_${target.id}`,
       priority: 'URGENT',
-      title: `فعّل توليد DMD لتنينك ${target.name}`,
-      reason: `وصل إلى LVL 5! خصّصه بـ ★1 (${starGateCost} ★) لبدء إنتاج DMD بالساعة.`,
-      ctaLabel: `ترقية ★1 (${starGateCost}★)`,
+      title: `تخصيص ★${target.customLevel + 1} لـ ${target.name}`,
+      reason: `يضيف +${dmdGain} DMD إلى رصيد محفظتك مقابل ${starCost} ★.`,
+      ctaLabel: `تخصيص ★${target.customLevel + 1} (${starCost}★)`,
       action: 'CUSTOMIZE_STAR',
-      targetDuckIndex: frozenLv5Idx,
+      targetDuckIndex: customIdx,
     };
   }
 
-  // 5. Ready daily task or daily league reward
+  // 6. Ready daily task or daily league reward
   const readyTask = state.dailyTasks.find((t) => !t.claimed && t.progress >= t.target);
   if (readyTask) {
     return {
@@ -515,7 +804,7 @@ export function evaluateNextStepAdvice(
     };
   }
 
-  // 6. Timed supply chest ready
+  // 7. Timed supply chest ready
   if (timedBonusReadyIn === 0) {
     return {
       id: 'claim_timed',
@@ -527,59 +816,35 @@ export function evaluateNextStepAdvice(
     };
   }
 
-  // 7. Active dragon can be fed toward LVL 5
+  // 8. Active dragon can still be fed
   const hasHarvest = state.godCards.some((g) => g.godKey === 'harvest' && g.owned);
-  if (active && active.level < 5) {
-    const rawCost = feedCostResolver(active.level, active.rarity, playerTier);
-    const cost = hasHarvest ? Math.ceil(rawCost * 0.8) : rawCost;
+  if (active && !active.breedingEndsAt && active.feedsProgress < active.feedsRequired) {
+    const rawCost = calculateScheduledFeedCost(
+      active.level,
+      active.feedClicksSinceReset ?? 0,
+      active.rarity,
+      resolveDragonSize(active)
+    );
+    const cost = hasHarvest ? Math.max(1, Math.ceil(rawCost * 0.8)) : rawCost;
     if (state.corn >= cost) {
       return {
         id: `feed_${active.id}`,
         priority: 'NORMAL',
-        title: `طوّر ${active.name} نحو المرحلة ${active.level + 1}`,
-        reason: `متبقي ${active.feedsRequired - active.feedsProgress} إطعام للترقية (${cost}⚡ صافي لكل نقرة).`,
+        title: `أطعم ${active.name} (LVL ${active.level})`,
+        reason: `متبقي ${active.feedsRequired - active.feedsProgress} ضغطة (${cost}⚡ للضغطة · يعاد ضبط التكلفة خلال 8 ساعات).`,
         ctaLabel: `إطعام (${cost}⚡)`,
         action: 'FEED_DRAGON',
       };
     }
   }
 
-  // 8. If active dragon is LVL 5 and can afford Intensive Training
-  if (active && active.level >= 5) {
-    const trainCost = getDragonTrainingCost(active.trainingLevel ?? 0, playerTier);
-    if (state.corn >= trainCost) {
-      return {
-        id: `train_${active.id}`,
-        priority: 'NORMAL',
-        title: `تدريب القوة لـ ${active.name} (رتبة ${(active.trainingLevel ?? 0) + 1})`,
-        reason: `حرق ${trainCost.toLocaleString()}⚡ يمنح +14 صحة و +2 هجوم دائم في الحلبة!`,
-        ctaLabel: `تدريب (${trainCost}⚡)`,
-        action: 'TRAIN_DRAGON',
-      };
-    }
-  }
-
-  // 9. Recommend Squad Talents if player has spare gold/medals
-  const talents = state.pack.talents ?? { fury: 0, carapace: 0, incubation: 0, prestige: 0 };
-  const furyCost = getSquadTalentCost('fury', talents.fury, playerTier);
-  if (talents.fury < ECONOMY_LIMITS.MAX_TALENT_RANK && state.corn >= furyCost.corn && state.stats.medals >= furyCost.medals) {
-    return {
-      id: 'talent_fury',
-      priority: 'NORMAL',
-      title: 'طوّر موهبة غريزة الهجوم للسرب',
-      reason: `ترقية جديدة متاحة مقابل ${furyCost.corn}⚡ و ${furyCost.medals}🏅 لرفع ضرر الحلبة.`,
-      ctaLabel: 'مواهب السرب',
-      action: 'UPGRADE_TALENT',
-    };
-  }
-
-  // 10. Low on energy/stars -> recommend Arena skill duel or Egg merge
+  // 9. Low on energy/stars -> recommend Arena or Egg merge
   if ((state.treasury.arenaFullWinsToday ?? 0) < ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS) {
     return {
       id: 'go_arena',
       priority: 'NORMAL',
       title: 'اكسب الطاقة والنجوم في الحلبة',
-      reason: `متبقي لك ${ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS - (state.treasury.arenaFullWinsToday ?? 0)} انتصارات كاملة المكافأة اليوم مع الصدّ المضاد!`,
+      reason: `متبقي لك ${ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS - (state.treasury.arenaFullWinsToday ?? 0)} انتصارات كاملة المكافأة اليوم.`,
       ctaLabel: 'دخول الحلبة',
       action: 'GO_ARENA',
       targetTab: 'ARENA',

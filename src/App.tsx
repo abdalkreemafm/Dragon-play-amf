@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   CheckSquare,
   Crown,
@@ -22,47 +22,71 @@ import {
   GameState,
   MainTab,
   Rarity,
+  RewardBundle,
   SquadTalentKey,
 } from './types/game';
 import {
+  ACHIEVEMENTS_REGISTRY,
+  ACTIVE_SEASON,
   BATTLE_PASS_LEVELS,
+  DAILY_PASS_REWARDS,
   DRAGON_SLOTS,
   DUCK_EVOLUTION_LEVELS,
   EGG_ITEM_META,
+  HEART_MILESTONES_REGISTRY,
+  HONOR_PACKS_REGISTRY,
+  LIVE_EVENTS_REGISTRY,
+  PROMO_CODES_REGISTRY,
   RARITY_ORDER,
   RARITY_STYLE,
   SKIN_CATALOG,
+  SOCIAL_TASKS_REGISTRY,
   STORE_PACKAGES,
+  TOURNAMENT_MILESTONES,
+  TREASURE_RACE_STEPS,
   WEEKEND_EVENTS,
+  WHEEL_REWARDS_REGISTRY,
   checkSlotUnlockEligibility,
   createInitialGameState,
   createInitialMarketListings,
   createRandomGodOrder,
   formatCompactNumber,
-  getCustomUpgradeCost,
-  getDragonDmdPerHour,
-  getDragonMaxCapDmd,
+  getDragonVaultDmdPrice,
   getFeedCost,
   getLeagueMeta,
 } from './data/gameData';
 import { soundFX } from './utils/sound';
+import {
+  getTelegramUser,
+  initTelegramWebApp,
+  triggerTelegramHaptic,
+} from './utils/telegram';
 import {
   ECONOMY_LIMITS,
   RELIC_FORGE_CATALOG,
   RelicForgeOffer,
   SQUAD_TALENT_CATALOG,
   applySoftCapDamping,
+  calculateCustomUpgradeCost,
+  clampCustomLevel,
   getBarterEnergyForGoldCost,
   getBarterEnergyForStarsCost,
   getBarterStarsToEnergyPayout,
+  getCumulativeDmdAtCustomLevel,
   getDragonTrainingCost,
   getEnergySoftCap,
   getInstantSummonStarCost,
+  getLevelRequiredFeeds,
   getMarketListingScaledCornFloor,
   getPlayerTier,
   getSkillUpgradeCost,
   getSquadTalentCost,
   getTraderDealStarCost,
+  getXlEggUpgradeCost,
+  grantRewardBundle,
+  normalizeDragonSlots,
+  resolveDragonSize,
+  resolveEventModifiers,
   syncDailyEconomyState,
 } from './utils/economyEngine';
 import { TitleScreen } from './components/TitleScreen';
@@ -126,51 +150,139 @@ function withBurnedStars(treasury: GameState['treasury'], amount: number): GameS
   };
 }
 
+function createFallbackStarterDragon(playerTier = 1): Duck {
+  return {
+    id: `duck_starter_${Date.now()}`,
+    name: 'تنين البداية المائي',
+    skin: 'aqua',
+    rarity: 'COMMON',
+    level: 1,
+    maxLevel: 5,
+    customLevel: 0,
+    dmd: 0,
+    dmdStored: 0,
+    slotIndex: 0,
+    feedCost: getFeedCost(1, 'COMMON', playerTier, 0),
+    feedsProgress: 0,
+    feedsRequired: getLevelRequiredFeeds(1),
+    feedClicksSinceReset: 0,
+    costResetEndsAt: null,
+    levelFeedsCompleted: false,
+    breedingEndsAt: null,
+    breedingNextLevel: null,
+    lastBreedingEggAt: null,
+    staked: false,
+    stakeRatePerHour: 0,
+    sizeTier: 'NORMAL',
+    skillLevel: 1,
+    trainingLevel: 0,
+    powerRating: 130,
+    unlockedAt: Date.now(),
+  };
+}
+
 function loadSavedState(): { state: GameState; hasSave: boolean; offlineDmdEarned: number } {
   const defaults = createInitialGameState();
+  const tgUser = getTelegramUser();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<GameState>;
       if (parsed && Array.isArray(parsed.ducks) && Array.isArray(parsed.grid)) {
         const unlockedSlots = parsed.unlockedSlots ?? 3;
+        const schemaVer = parsed.schemaVersion ?? 1;
+        const nowTs = Date.now();
         const tier = getPlayerTier({
           ducks: parsed.ducks,
           unlockedSlots,
         });
-        const elapsedHours = parsed.lastSavedAt
-          ? Math.max(0, (Date.now() - parsed.lastSavedAt) / 3_600_000)
-          : 0;
-        let offlineDmdEarned = 0;
+        let legacyDmdFolded = 0;
+        let offlineBreedingEggs = 0;
 
-        const mergedDragons = parsed.ducks.map((d, idx) => {
-          const slotIndex =
-            d.slotIndex !== undefined ? d.slotIndex : idx < unlockedSlots ? idx : null;
-          const activeSlot = slotIndex !== null && slotIndex < unlockedSlots ? slotIndex : null;
-          const baseDragon: Duck = {
+        const migratedDragons: Duck[] = parsed.ducks.map((d) => {
+          const rawCustom = d.customLevel ?? 0;
+          const migratedCustom =
+            schemaVer < 3 && rawCustom > ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL
+              ? Math.min(9, Math.floor(rawCustom / 10))
+              : clampCustomLevel(rawCustom);
+
+          let level = Math.max(1, Math.min(5, d.level ?? 1));
+          let feedsRequired = getLevelRequiredFeeds(level);
+          let feedsProgress =
+            schemaVer < 3 && (d.feedsRequired ?? 0) > 0 && (d.feedsRequired ?? 0) !== feedsRequired
+              ? Math.min(feedsRequired, Math.round(((d.feedsProgress ?? 0) / d.feedsRequired) * feedsRequired))
+              : Math.min(feedsRequired, d.feedsProgress ?? 0);
+
+          let feedClicksSinceReset = d.feedClicksSinceReset ?? 0;
+          let costResetEndsAt = d.costResetEndsAt ?? null;
+          if (costResetEndsAt && nowTs >= costResetEndsAt) {
+            costResetEndsAt = null;
+            feedClicksSinceReset = 0;
+          }
+
+          let breedingEndsAt = d.breedingEndsAt ?? null;
+          let breedingNextLevel = d.breedingNextLevel ?? null;
+          let lastBreedingEggAt = d.lastBreedingEggAt ?? null;
+          let powerRating = d.powerRating ?? RARITY_STYLE[d.rarity].basePower + level * 20;
+
+          if (breedingEndsAt) {
+            const anchor = lastBreedingEggAt ?? breedingEndsAt - ECONOMY_LIMITS.BREEDING_DURATION_MS;
+            const effectiveEnd = Math.min(nowTs, breedingEndsAt);
+            const eggsEarned = Math.max(
+              0,
+              Math.floor((effectiveEnd - anchor) / ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS)
+            );
+            offlineBreedingEggs += eggsEarned;
+            lastBreedingEggAt = anchor + eggsEarned * ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS;
+
+            if (nowTs >= breedingEndsAt) {
+              const nextLv = Math.min(5, breedingNextLevel ?? level + 1);
+              powerRating += 30 + nextLv * 15;
+              level = nextLv;
+              feedsRequired = getLevelRequiredFeeds(nextLv);
+              feedsProgress = 0;
+              feedClicksSinceReset = 0;
+              costResetEndsAt = null;
+              breedingEndsAt = null;
+              breedingNextLevel = null;
+              lastBreedingEggAt = null;
+            }
+          }
+
+          const sizeTier = resolveDragonSize(d);
+          legacyDmdFolded += d.dmdStored ?? 0;
+
+          return {
             ...d,
-            customLevel: d.customLevel ?? 0,
-            dmdStored: d.dmdStored ?? 0,
-            slotIndex: activeSlot,
-            feedCost: getFeedCost(d.level ?? 1, d.rarity ?? 'COMMON', tier),
+            level,
+            maxLevel: 5,
+            customLevel: migratedCustom,
+            dmdStored: 0,
+            staked: false,
+            stakeRatePerHour: 0,
+            sizeTier,
+            xl: sizeTier !== 'NORMAL',
+            feedsProgress,
+            feedsRequired,
+            feedClicksSinceReset,
+            costResetEndsAt,
+            levelFeedsCompleted: feedsProgress >= feedsRequired,
+            breedingEndsAt,
+            breedingNextLevel,
+            lastBreedingEggAt,
+            feedCost: getFeedCost(level, d.rarity ?? 'COMMON', tier, feedClicksSinceReset, {
+              sizeTier,
+              xl: sizeTier !== 'NORMAL',
+            }),
             skillLevel: d.skillLevel ?? 1,
             trainingLevel: d.trainingLevel ?? 0,
-            powerRating: d.powerRating ?? RARITY_STYLE[d.rarity].basePower + (d.level ?? 1) * 20,
-          };
-          const rate = getDragonDmdPerHour(baseDragon);
-          const maxCap = getDragonMaxCapDmd(baseDragon);
-          let nextStored = baseDragon.dmdStored;
-          if (rate > 0 && elapsedHours > 0) {
-            nextStored = Math.min(maxCap, baseDragon.dmdStored + rate * elapsedHours);
-            offlineDmdEarned += Math.max(0, nextStored - baseDragon.dmdStored);
-          }
-          return {
-            ...baseDragon,
-            staked: rate > 0,
-            stakeRatePerHour: rate,
-            dmdStored: nextStored,
+            powerRating,
           };
         });
+
+        const safeDragons =
+          migratedDragons.length > 0 ? migratedDragons : [createFallbackStarterDragon(tier)];
+        const normalizedDragons = normalizeDragonSlots(safeDragons, unlockedSlots);
         const syncedGodCards = (parsed.godCards ?? defaults.godCards).map((g) =>
           g.godKey === 'harvest'
             ? {
@@ -180,14 +292,27 @@ function loadSavedState(): { state: GameState; hasSave: boolean; offlineDmdEarne
               }
             : g
         );
+        const resolvedUsername =
+          parsed.username && parsed.username !== 'DRAGON_TAMER'
+            ? parsed.username
+            : tgUser?.displayName || defaults.username;
+
         return {
           state: syncDailyEconomyState({
             ...defaults,
             ...parsed,
-            ducks: mergedDragons,
+            schemaVersion: 3,
+            username: resolvedUsername,
+            dmdTotal: (parsed.dmdTotal ?? 0) + legacyDmdFolded,
+            breedingEggs: (parsed.breedingEggs ?? 0) + offlineBreedingEggs,
+            customizedVault: parsed.customizedVault ?? [],
+            ducks: normalizedDragons,
             godCards: syncedGodCards,
             unlockedSlots,
-            activeDuckIndex: Math.min(parsed.activeDuckIndex ?? 0, Math.max(0, mergedDragons.length - 1)),
+            activeDuckIndex: Math.min(
+              parsed.activeDuckIndex ?? 0,
+              Math.max(0, normalizedDragons.length - 1)
+            ),
             treasury: {
               ...defaults.treasury,
               ...(parsed.treasury ?? {}),
@@ -215,14 +340,22 @@ function loadSavedState(): { state: GameState; hasSave: boolean; offlineDmdEarne
             stats: { ...defaults.stats, ...(parsed.stats ?? {}) },
           }),
           hasSave: true,
-          offlineDmdEarned,
+          offlineDmdEarned: legacyDmdFolded,
         };
       }
     }
   } catch {
     // ignore corrupted save
   }
-  return { state: defaults, hasSave: false, offlineDmdEarned: 0 };
+  return {
+    state: {
+      ...defaults,
+      schemaVersion: 3,
+      username: tgUser?.displayName || defaults.username,
+    },
+    hasSave: false,
+    offlineDmdEarned: 0,
+  };
 }
 
 export default function App() {
@@ -239,8 +372,34 @@ export default function App() {
   const [blitzSecLeft, setBlitzSecLeft] = useState<number>(0);
   const [toast, setToast] = useState<string | null>(null);
 
+  const latestStateRef = useRef<GameState>(state);
+  latestStateRef.current = state;
+  const dirtySaveRef = useRef<boolean>(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
+  }, []);
+
+  const flushSaveNow = useCallback((stateToSave?: GameState) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...(stateToSave ?? latestStateRef.current), lastSavedAt: Date.now() })
+      );
+      dirtySaveRef.current = false;
+      setHasSave(true);
+    } catch {
+      // ignore storage quota
+    }
+  }, []);
+
+  useEffect(() => {
+    return initTelegramWebApp();
   }, []);
 
   useEffect(() => {
@@ -254,13 +413,34 @@ export default function App() {
   }, [state.muted]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, lastSavedAt: Date.now() }));
-      setHasSave(true);
-    } catch {
-      // ignore storage quota
+    dirtySaveRef.current = true;
+    if (!saveTimerRef.current) {
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        if (dirtySaveRef.current) {
+          flushSaveNow();
+        }
+      }, 2500);
     }
-  }, [state]);
+  }, [state, flushSaveNow]);
+
+  useEffect(() => {
+    const handleVisibilityOrUnload = () => {
+      if (document.visibilityState === 'hidden' || dirtySaveRef.current) {
+        flushSaveNow();
+      }
+    };
+    window.addEventListener('pagehide', handleVisibilityOrUnload);
+    window.addEventListener('beforeunload', handleVisibilityOrUnload);
+    document.addEventListener('visibilitychange', handleVisibilityOrUnload);
+    return () => {
+      window.removeEventListener('pagehide', handleVisibilityOrUnload);
+      window.removeEventListener('beforeunload', handleVisibilityOrUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityOrUnload);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (dirtySaveRef.current) flushSaveNow();
+    };
+  }, [flushSaveNow]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -273,7 +453,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [screen]);
 
-  // 1-second simulation loop: DMD generation (ONLY LVL 5 + Custom_LVL >= 1 + Slot Efficiency + Max Cap), Market Auctions & Tournament timer
+  // 1-second simulation loop: 8h Cost Reset Timer, 24h Breeding Gate + 15m Eggs, Market Auctions & Tournament timer
   useEffect(() => {
     if (screen !== 'PLAYING') return;
     const interval = setInterval(() => {
@@ -282,80 +462,138 @@ export default function App() {
 
       setState((prevRaw) => {
         const prev = syncDailyEconomyState(prevRaw);
+        const nowTs = Date.now();
+        const playerTier = getPlayerTier(prev);
+        let eggsGainedThisTick = 0;
+
         let updatedDucks = prev.ducks.map((d) => {
-          if (d.slotIndex === null || d.slotIndex >= prev.unlockedSlots) return d;
-          const ratePerHour = getDragonDmdPerHour(d);
-          if (ratePerHour <= 0) return d;
-          const maxCap = getDragonMaxCapDmd(d);
-          const nextStored = Math.min(maxCap, (d.dmdStored ?? 0) + ratePerHour / 3600);
-          return {
-            ...d,
-            staked: true,
-            stakeRatePerHour: ratePerHour,
-            dmdStored: nextStored,
-          };
+          let changed = false;
+          let next = d;
+
+          // 1. 8-hour Feed Cost Reset Timer
+          if (d.costResetEndsAt && nowTs >= d.costResetEndsAt) {
+            changed = true;
+            next = {
+              ...next,
+              costResetEndsAt: null,
+              feedClicksSinceReset: 0,
+              feedCost: getFeedCost(d.level, d.rarity, playerTier, 0, d),
+            };
+          }
+
+          // 2. 24-hour Breeding Gate + 15-minute Breeding Egg generator
+          if (d.breedingEndsAt) {
+            const anchor =
+              d.lastBreedingEggAt ?? d.breedingEndsAt - ECONOMY_LIMITS.BREEDING_DURATION_MS;
+            const effectiveEnd = Math.min(nowTs, d.breedingEndsAt);
+            const newEggs = Math.max(
+              0,
+              Math.floor((effectiveEnd - anchor) / ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS)
+            );
+            if (newEggs > 0) {
+              eggsGainedThisTick += newEggs;
+              changed = true;
+              next = {
+                ...next,
+                lastBreedingEggAt: anchor + newEggs * ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS,
+              };
+            }
+
+            if (nowTs >= d.breedingEndsAt) {
+              const nextLv = Math.min(d.maxLevel, d.breedingNextLevel ?? d.level + 1);
+              changed = true;
+              next = {
+                ...next,
+                level: nextLv,
+                feedsProgress: 0,
+                feedsRequired: getLevelRequiredFeeds(nextLv),
+                levelFeedsCompleted: false,
+                feedClicksSinceReset: 0,
+                costResetEndsAt: null,
+                breedingEndsAt: null,
+                breedingNextLevel: null,
+                lastBreedingEggAt: null,
+                powerRating: d.powerRating + (30 + nextLv * 15),
+                feedCost: getFeedCost(nextLv, d.rarity, playerTier, 0, d),
+              };
+            }
+          }
+
+          return changed ? next : d;
         });
 
         let snipeOccurred = false;
         let wonAuction = false;
 
-        const updatedListings = prev.marketListings.map((item) => {
-          if (item.soldStatus !== 'ACTIVE') return item;
+        const updatedListings = prev.marketListings
+          .filter((item) => item.soldStatus === 'ACTIVE' || !item.soldAt || nowTs - item.soldAt <= 6000)
+          .map((item) => {
+            if (item.soldStatus !== 'ACTIVE') {
+              return item.soldAt ? item : { ...item, soldAt: nowTs };
+            }
 
-          if (item.isUserBid && item.timeLeftSec <= 5 && item.timeLeftSec >= 2 && Math.random() < 0.42) {
-            const rivalName = AUCTION_RIVALS[Math.floor(Math.random() * AUCTION_RIVALS.length)];
-            snipeOccurred = true;
-            return {
-              ...item,
-              cornPrice: Math.round(item.cornPrice * 1.1),
-              isUserBid: false,
-              rivalSniped: true,
-              lastBidder: rivalName,
-              timeLeftSec: item.timeLeftSec + 6,
-            };
-          }
+            if (item.isUserBid && item.timeLeftSec <= 5 && item.timeLeftSec >= 2 && Math.random() < 0.42) {
+              const rivalName = AUCTION_RIVALS[Math.floor(Math.random() * AUCTION_RIVALS.length)];
+              snipeOccurred = true;
+              return {
+                ...item,
+                cornPrice: Math.round(item.cornPrice * 1.1),
+                isUserBid: false,
+                rivalSniped: true,
+                lastBidder: rivalName,
+                timeLeftSec: item.timeLeftSec + 6,
+              };
+            }
 
-          if (item.timeLeftSec > 1) {
-            return { ...item, timeLeftSec: item.timeLeftSec - 1 };
-          }
+            if (item.timeLeftSec > 1) {
+              return { ...item, timeLeftSec: item.timeLeftSec - 1 };
+            }
 
-          if (item.isUserBid) {
-            const freeSlot = Array.from({ length: prev.unlockedSlots }, (_, i) => i).find(
-              (sIdx) => !updatedDucks.some((dr) => dr.slotIndex === sIdx)
-            );
-            const wonDragon: Duck = {
-              id: `dragon_won_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
-              name: item.duckName,
-              skin: item.skin,
-              rarity: item.rarity,
-              level: item.level,
-              maxLevel: 5,
-              customLevel: 0,
-              dmd: 0,
-              dmdStored: 0,
-              slotIndex: freeSlot ?? null,
-              feedCost: getFeedCost(item.level, item.rarity, getPlayerTier(prev)),
-              feedsProgress: item.level >= 5 ? 12 : 0,
-              feedsRequired: DUCK_EVOLUTION_LEVELS[Math.max(0, Math.min(4, item.level - 1))].feedsRequired,
-              staked: false,
-              stakeRatePerHour: 0,
-              xl: item.xl,
-              skillLevel: 1,
-              trainingLevel: 0,
-              powerRating: RARITY_STYLE[item.rarity].basePower + item.level * 20,
-              unlockedAt: Date.now(),
-            };
-            updatedDucks = [...updatedDucks, wonDragon];
-            wonAuction = true;
-            return { ...item, timeLeftSec: 0, soldStatus: 'SOLD_YOU' as const, rivalSniped: false };
-          }
-          return { ...item, timeLeftSec: 0, soldStatus: 'SOLD_OTHER' as const, rivalSniped: false };
-        });
+            if (item.isUserBid) {
+              const sz = item.xl ? 'XL' : 'NORMAL';
+              const reqFeeds = getLevelRequiredFeeds(item.level);
+              const wonDragon: Duck = {
+                id: `dragon_won_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+                name: item.duckName,
+                skin: item.skin,
+                rarity: item.rarity,
+                level: item.level,
+                maxLevel: 5,
+                customLevel: 0,
+                dmd: 0,
+                dmdStored: 0,
+                slotIndex: null,
+                feedCost: getFeedCost(item.level, item.rarity, playerTier, 0, {
+                  sizeTier: sz,
+                  xl: Boolean(item.xl),
+                }),
+                feedsProgress: item.level >= 5 ? reqFeeds : 0,
+                feedsRequired: reqFeeds,
+                feedClicksSinceReset: 0,
+                costResetEndsAt: null,
+                levelFeedsCompleted: item.level >= 5,
+                breedingEndsAt: null,
+                breedingNextLevel: null,
+                lastBreedingEggAt: null,
+                staked: false,
+                stakeRatePerHour: 0,
+                xl: item.xl,
+                sizeTier: sz,
+                skillLevel: 1,
+                trainingLevel: 0,
+                powerRating: RARITY_STYLE[item.rarity].basePower + item.level * 20,
+                unlockedAt: Date.now(),
+              };
+              updatedDucks = normalizeDragonSlots([...updatedDucks, wonDragon], prev.unlockedSlots);
+              wonAuction = true;
+              return { ...item, timeLeftSec: 0, soldStatus: 'SOLD_YOU' as const, soldAt: nowTs, rivalSniped: false };
+            }
+            return { ...item, timeLeftSec: 0, soldStatus: 'SOLD_OTHER' as const, soldAt: nowTs, rivalSniped: false };
+          });
 
         if (snipeOccurred) soundFX.playAuctionAlert();
         if (wonAuction) soundFX.playVictory();
 
-        const playerTier = getPlayerTier(prev);
         const marketRarities: Rarity[] = ['UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'];
         const missingRarity = marketRarities.some(
           (rar) => !updatedListings.some((l) => l.rarity === rar && l.soldStatus === 'ACTIVE')
@@ -371,9 +609,11 @@ export default function App() {
             if (activeForRar.length > 0) {
               return updatedListings.filter((l) => l.rarity === rar);
             }
-            return freshPool
+            const preservedSold = updatedListings.filter((l) => l.rarity === rar && l.soldStatus !== 'ACTIVE');
+            const replacements = freshPool
               .filter((l) => l.rarity === rar)
               .map((l) => ({ ...l, id: `${l.id}_${Date.now().toString().slice(-4)}` }));
+            return [...replacements, ...preservedSold];
           });
         }
 
@@ -385,6 +625,7 @@ export default function App() {
 
         return {
           ...prev,
+          breedingEggs: (prev.breedingEggs ?? 0) + eggsGainedThisTick,
           ducks: updatedDucks,
           marketListings: finalListings,
           stats:
@@ -412,150 +653,323 @@ export default function App() {
   const activeGodHype = state.godCards.some((g) => g.godKey === 'hype' && g.owned);
   const activeGodFortune = state.godCards.some((g) => g.godKey === 'fortune' && g.owned);
   const activeGodPlunder = state.godCards.some((g) => g.godKey === 'plunder' && g.owned);
-  const currentWeekendEvent = WEEKEND_EVENTS[state.weekendEventIndex % WEEKEND_EVENTS.length];
 
-  // === FEEDING HANDLER (Strictly NET Energy Burn; Combo accelerates evolution progress, NEVER refunds energy!) ===
+  // === FEEDING HANDLER (5-Level Escalating Schedule + 8h Reset Timer -> Unlocks 24h Breeding Gate) ===
   const handleFeedDuck = (
     duckId: string,
     comboMultiplier = 1,
     isCrit = false
   ): { burnedEnergy: number; tapSteps: number; leveledUp: boolean } | null => {
-    const target = state.ducks.find((d) => d.id === duckId);
-    if (!target || target.level >= target.maxLevel) return null;
-    const playerTier = getPlayerTier(state);
-    const baseFeedCost = getFeedCost(target.level, target.rarity, playerTier);
-    // Harvest blessing is strictly capped at 20% reduction -> minimum 80% net Energy deduction every tap
-    const effectiveCost = activeGodHarvest ? Math.ceil(baseFeedCost * 0.8) : baseFeedCost;
-    if (state.corn < effectiveCost) {
+    const cur = latestStateRef.current;
+    const target = cur.ducks.find((d) => d.id === duckId);
+    if (!target) return null;
+    const nowTs = Date.now();
+    if (target.breedingEndsAt && target.breedingEndsAt > nowTs) {
+      showToast('التنين في بوابة التزاوج حالياً! انتظر انتهاء العداد للانتقال للمستوى التالي.');
+      return null;
+    }
+    if (target.feedsProgress >= target.feedsRequired) {
+      showToast(
+        target.level < 5
+          ? 'اكتملت ضغطات هذا المستوى! ابدأ بوابة التزاوج (24 ساعة).'
+          : 'اكتمل إطعام المستوى الخامس بالكامل!'
+      );
+      return null;
+    }
+
+    const playerTier = getPlayerTier(cur);
+    const hasHarvest = cur.godCards.some((g) => g.godKey === 'harvest' && g.owned);
+    const prevClicks = target.feedClicksSinceReset ?? 0;
+    const baseFeedCost = getFeedCost(target.level, target.rarity, playerTier, prevClicks, target);
+    const effectiveCost = hasHarvest ? Math.max(1, Math.ceil(baseFeedCost * 0.8)) : baseFeedCost;
+    if (cur.corn < effectiveCost) {
+      triggerTelegramHaptic('error');
       showToast(`طاقة الإطعام غير كافية (${effectiveCost}⚡ مطلوبة)! اجمع الطاقة من البيض أو الحلبة.`);
       return null;
     }
 
     const comboStepBonus = comboMultiplier >= 5 ? 1 : 0;
     const tapSteps = (isCrit ? 2 : 1) + comboStepBonus;
-    const nextProgress = target.feedsProgress + tapSteps;
-    const leveledUp = nextProgress >= target.feedsRequired;
-    const nextLv = Math.min(target.maxLevel, target.level + 1);
-    const nextEvoStage = DUCK_EVOLUTION_LEVELS[Math.max(0, Math.min(4, nextLv - 1))];
-    const levelPowerGain = 30 + nextEvoStage.level * 15;
+    const nextProgress = Math.min(target.feedsRequired, target.feedsProgress + tapSteps);
+    const completedLevelFeeds = nextProgress >= target.feedsRequired;
+    const nextClicks = prevClicks + 1;
+    const nextResetAt =
+      target.costResetEndsAt && target.costResetEndsAt > nowTs
+        ? target.costResetEndsAt
+        : nowTs + ECONOMY_LIMITS.FEED_RESET_DURATION_MS;
+    const nextFeedCost = getFeedCost(target.level, target.rarity, playerTier, nextClicks, target);
 
-    setState((prev) => {
-      const nextTier = getPlayerTier(prev);
-      return {
-        ...prev,
-        corn: prev.corn - effectiveCost,
-        treasury: withBurnedEnergy(prev.treasury, effectiveCost),
-        battlePass: {
-          ...prev.battlePass,
-          xp: prev.battlePass.xp + (isCrit ? 6 : 3) + (leveledUp ? 30 : 0),
-        },
-        ducks: prev.ducks.map((d) => {
-          if (d.id !== duckId) return d;
-          if (leveledUp) {
-            return {
-              ...d,
-              level: nextLv,
-              feedCost: getFeedCost(nextLv, d.rarity, nextTier),
-              powerRating: d.powerRating + levelPowerGain,
-              feedsProgress: nextLv >= d.maxLevel ? nextEvoStage.feedsRequired : 0,
-              feedsRequired: nextEvoStage.feedsRequired,
-            };
-          }
-          return {
-            ...d,
-            feedsProgress: nextProgress,
-          };
-        }),
-        eggQueue: (prev.stats.totalFeeds + 1) % 12 === 0 ? [...prev.eggQueue, 'egg_1'] : prev.eggQueue,
-        stats: {
-          ...prev.stats,
-          totalFeeds: prev.stats.totalFeeds + 1,
-          hearts: prev.stats.hearts + (target.skin === 'cupid' ? 14 : 8),
-        },
-        dailyTasks: prev.dailyTasks.map((dt) =>
-          dt.id === 'dt_feed' ? { ...dt, progress: Math.min(dt.target, dt.progress + 1) } : dt
-        ),
-      };
-    });
+    const nextState: GameState = {
+      ...cur,
+      corn: cur.corn - effectiveCost,
+      treasury: withBurnedEnergy(cur.treasury, effectiveCost),
+      battlePass: {
+        ...cur.battlePass,
+        xp: cur.battlePass.xp + (isCrit ? 6 : 3) + (completedLevelFeeds ? 30 : 0),
+      },
+      ducks: cur.ducks.map((d) => {
+        if (d.id !== duckId) return d;
+        return {
+          ...d,
+          feedsProgress: nextProgress,
+          feedClicksSinceReset: nextClicks,
+          costResetEndsAt: nextResetAt,
+          feedCost: nextFeedCost,
+          levelFeedsCompleted: completedLevelFeeds,
+        };
+      }),
+      eggQueue: (cur.stats.totalFeeds + 1) % 12 === 0 ? [...cur.eggQueue, 'egg_1'] : cur.eggQueue,
+      stats: {
+        ...cur.stats,
+        totalFeeds: cur.stats.totalFeeds + 1,
+        hearts: cur.stats.hearts + (target.skin === 'cupid' ? 14 : 8),
+      },
+      dailyTasks: cur.dailyTasks.map((dt) =>
+        dt.id === 'dt_feed' ? { ...dt, progress: Math.min(dt.target, dt.progress + 1) } : dt
+      ),
+    };
 
-    if (leveledUp) {
-      if (nextLv >= 5) {
-        showToast('🔥 بلغ التنين المرحلة 5! خصّصه الآن بالنجوم لبدء توليد DMD!');
+    latestStateRef.current = nextState;
+    setState(nextState);
+
+    if (completedLevelFeeds) {
+      if (target.level < 5) {
+        showToast(`🔥 اكتملت ضغطات LVL ${target.level}! افتح بوابة التزاوج (24 ساعة) للانتقال إلى LVL ${target.level + 1}!`);
       } else {
-        showToast(`ترقى التنين إلى ${nextEvoStage.titleAr}! (+${levelPowerGain} قوة ⚡)`);
+        showToast('🏆 اكتمل المستوى الخامس (500/500)! يمكنك الآن دمج XL/XXL أو التخصيص بالنجوم ★!');
       }
     }
-    return { burnedEnergy: effectiveCost, tapSteps, leveledUp };
+    return { burnedEnergy: effectiveCost, tapSteps, leveledUp: completedLevelFeeds };
   };
 
-  // === STAR CUSTOMIZATION UPGRADE (Custom_LVL 0 -> 10; Unlocks DMD generation at LVL 5!) ===
-  const handleUpgradeStarCustomization = (duckId: string) => {
+  // === 24-HOUR BREEDING GATE + 15-MIN BREEDING EGGS ===
+  const handleStartBreeding = (duckId: string) => {
+    const target = state.ducks.find((d) => d.id === duckId);
+    if (!target) return;
+    if (target.level >= 5) {
+      soundFX.playError();
+      showToast('بلغ التنين المستوى الخامس بالفعل!');
+      return;
+    }
+    if (target.feedsProgress < target.feedsRequired) {
+      soundFX.playError();
+      showToast(`أكمل ضغطات الإطعام أولاً (${target.feedsProgress}/${target.feedsRequired})!`);
+      return;
+    }
+    if (target.breedingEndsAt && target.breedingEndsAt > Date.now()) {
+      showToast('عملية التزاوج جارية بالفعل لهذا التنين!');
+      return;
+    }
+
+    const nowTs = Date.now();
+    soundFX.playGodConfirm();
+    triggerTelegramHaptic('success');
+    setState((prev) => ({
+      ...prev,
+      ducks: prev.ducks.map((d) =>
+        d.id === duckId
+          ? {
+              ...d,
+              breedingEndsAt: nowTs + ECONOMY_LIMITS.BREEDING_DURATION_MS,
+              breedingNextLevel: d.level + 1,
+              lastBreedingEggAt: nowTs,
+            }
+          : d
+      ),
+    }));
+    showToast(`❤️ بدأت بوابة التزاوج 24 ساعة للانتقال إلى LVL ${target.level + 1} (بيضة كل 15 دقيقة)!`);
+  };
+
+  // === UPGRADE XL / XXL DRAGON WITH BREEDING EGGS ===
+  const handleUpgradeXlWithEggs = (duckId: string) => {
+    const target = state.ducks.find((d) => d.id === duckId);
+    if (!target) return;
+    const sz = resolveDragonSize(target);
+    if (sz === 'NORMAL' || target.level >= 5) {
+      soundFX.playError();
+      return;
+    }
+    const costEggs = getXlEggUpgradeCost(target.level, sz);
+    if ((state.breedingEggs ?? 0) < costEggs) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${costEggs} بيضة تزاوج للترقية (لديك ${state.breedingEggs ?? 0})!`);
+      return;
+    }
+
+    const nextLv = Math.min(5, target.level + 1);
+    const tier = getPlayerTier(state);
+    soundFX.playLevelUp();
+    triggerTelegramHaptic('success');
+    setState((prev) => ({
+      ...prev,
+      breedingEggs: Math.max(0, (prev.breedingEggs ?? 0) - costEggs),
+      ducks: prev.ducks.map((d) =>
+        d.id === duckId
+          ? {
+              ...d,
+              level: nextLv,
+              feedsProgress: 0,
+              feedsRequired: getLevelRequiredFeeds(nextLv),
+              levelFeedsCompleted: false,
+              feedClicksSinceReset: 0,
+              costResetEndsAt: null,
+              breedingEndsAt: null,
+              breedingNextLevel: null,
+              lastBreedingEggAt: null,
+              powerRating: d.powerRating + (30 + nextLv * 15),
+              feedCost: getFeedCost(nextLv, d.rarity, tier, 0, d),
+            }
+          : d
+      ),
+    }));
+    showToast(`🥚 تمت ترقية ${target.name} (${sz}) إلى LVL ${nextLv} باستخدام ${costEggs} بيضة تزاوج!`);
+  };
+
+  // === STAR CUSTOMIZATION UPGRADE (★1..10: 10★..100★; Unlocks Wallet DMD; ★10 Seals to Vault!) ===
+  const handleUpgradeStarCustomization = (duckId: string, steps = 1) => {
     const target = state.ducks.find((d) => d.id === duckId);
     if (!target) return;
     if (target.level < 5) {
       soundFX.playError();
-      showToast('يجب وصول التنين إلى المرحلة 5 أولاً قبل التخصيص بالنجوم!');
-      return;
-    }
-    if (target.customLevel >= 10) {
-      soundFX.playError();
-      showToast('وصل التنين إلى أقصى مستوى تخصيص بالنجوم (10/10)!');
+      triggerTelegramHaptic('error');
+      showToast('يجب وصول التنين إلى المستوى 5 أولاً قبل التخصيص بالنجوم!');
       return;
     }
 
-    const starCost = getCustomUpgradeCost(target.customLevel);
-    if (state.stars < starCost) {
+    const startLv = clampCustomLevel(target.customLevel);
+    if (startLv >= ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL) {
       soundFX.playError();
-      showToast(`تحتاج ${starCost} نجمة ★ للترقية إلى التخصيص ${target.customLevel + 1}!`);
+      triggerTelegramHaptic('error');
+      showToast('وصل التنين إلى التخصيص النهائي ★10/10!');
+      return;
+    }
+
+    const requestedSteps = Math.max(1, Math.min(10, Math.floor(steps)));
+    let previewLv = startLv;
+    let previewStars = state.stars;
+    let previewSpent = 0;
+    let previewCount = 0;
+    let previewDmdGain = 0;
+    const targetSize = resolveDragonSize(target);
+
+    while (
+      previewCount < requestedSteps &&
+      previewLv < ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL
+    ) {
+      const stepCost = calculateCustomUpgradeCost(previewLv);
+      if (previewStars < stepCost) break;
+      const beforeDmd = getCumulativeDmdAtCustomLevel(target.rarity, targetSize, previewLv);
+      const afterDmd = getCumulativeDmdAtCustomLevel(target.rarity, targetSize, previewLv + 1);
+      previewDmdGain += Math.max(0, afterDmd - beforeDmd);
+      previewStars -= stepCost;
+      previewSpent += stepCost;
+      previewLv++;
+      previewCount++;
+    }
+
+    if (previewCount === 0) {
+      const needed = calculateCustomUpgradeCost(startLv);
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${needed} نجمة ★ للترقية إلى ★${startLv + 1}!`);
       return;
     }
 
     soundFX.playGodConfirm();
+    triggerTelegramHaptic('success');
+
     setState((prev) => {
-      const nextCustom = target.customLevel + 1;
-      const updatedDucks = prev.ducks.map((d) => {
-        if (d.id !== duckId) return d;
-        const updated: Duck = {
-          ...d,
-          customLevel: nextCustom,
-          staked: d.slotIndex !== null && d.slotIndex < prev.unlockedSlots,
-          powerRating: d.powerRating + 45,
+      const curDragon = prev.ducks.find((d) => d.id === duckId);
+      if (!curDragon || curDragon.level < 5) return prev;
+      let curLv = clampCustomLevel(curDragon.customLevel);
+      let remStars = prev.stars;
+      let totalSpent = 0;
+      let powerGain = 0;
+      let performed = 0;
+      const curSize = resolveDragonSize(curDragon);
+      const startCumulativeDmd = getCumulativeDmdAtCustomLevel(curDragon.rarity, curSize, curLv);
+
+      while (
+        performed < requestedSteps &&
+        curLv < ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL
+      ) {
+        const cost = calculateCustomUpgradeCost(curLv);
+        if (remStars < cost) break;
+        remStars -= cost;
+        totalSpent += cost;
+        powerGain += 40;
+        curLv++;
+        performed++;
+      }
+
+      if (performed === 0) return prev;
+      const endCumulativeDmd = getCumulativeDmdAtCustomLevel(curDragon.rarity, curSize, curLv);
+      const dmdAdded = Math.max(0, Math.round((endCumulativeDmd - startCumulativeDmd) * 100) / 100);
+
+      // Seal permanently at ★10 into Customized Vault for DMD exchange
+      if (curLv >= ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL) {
+        const sealedDragon: Duck = {
+          ...curDragon,
+          customLevel: ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL,
+          dmd: getDragonVaultDmdPrice(curDragon),
+          dmdStored: 0,
+          staked: false,
+          stakeRatePerHour: 0,
+          slotIndex: null,
+          powerRating: curDragon.powerRating + powerGain,
         };
+        const remainingRaw = prev.ducks.filter((d) => d.id !== duckId);
+        const ensured =
+          remainingRaw.length > 0
+            ? remainingRaw
+            : [createFallbackStarterDragon(getPlayerTier(prev))];
+        const nextDucks = normalizeDragonSlots(ensured, prev.unlockedSlots);
         return {
-          ...updated,
-          stakeRatePerHour: getDragonDmdPerHour(updated),
+          ...prev,
+          stars: remStars,
+          dmdTotal: Math.round((prev.dmdTotal + dmdAdded) * 100) / 100,
+          treasury: withBurnedStars(prev.treasury, totalSpent),
+          battlePass: { ...prev.battlePass, xp: prev.battlePass.xp + performed * 35 },
+          ducks: nextDucks,
+          activeDuckIndex: Math.min(prev.activeDuckIndex, Math.max(0, nextDucks.length - 1)),
+          customizedVault: [...(prev.customizedVault ?? []), sealedDragon],
         };
-      });
+      }
+
+      const updatedDucks = prev.ducks.map((d) =>
+        d.id === duckId
+          ? {
+              ...d,
+              customLevel: curLv,
+              dmd: Math.round((d.dmd + dmdAdded) * 100) / 100,
+              dmdStored: 0,
+              staked: false,
+              stakeRatePerHour: 0,
+              powerRating: d.powerRating + powerGain,
+            }
+          : d
+      );
 
       return {
         ...prev,
-        stars: prev.stars - starCost,
-        treasury: withBurnedStars(prev.treasury, starCost),
-        battlePass: { ...prev.battlePass, xp: prev.battlePass.xp + 35 },
+        stars: remStars,
+        dmdTotal: Math.round((prev.dmdTotal + dmdAdded) * 100) / 100,
+        treasury: withBurnedStars(prev.treasury, totalSpent),
+        battlePass: { ...prev.battlePass, xp: prev.battlePass.xp + performed * 35 },
         ducks: updatedDucks,
       };
     });
-    showToast(`⭐ تمت ترقية التخصيص إلى ★${target.customLevel + 1}! بدأ توليد DMD بنسبة +12%!`);
-  };
 
-  const handleCollectDragonDmd = (duckId: string) => {
-    const target = state.ducks.find((d) => d.id === duckId);
-    if (!target || target.dmdStored <= 0) {
-      soundFX.playError();
-      showToast('لا يوجد رصيد DMD متراكم للجمع حالياً.');
-      return;
+    if (previewLv >= ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL) {
+      showToast(
+        `🏦 اكتمل ★10! تم نقل ${target.name} إلى خزانة التنانين المخصصة (+${previewDmdGain.toFixed(2)} DMD للمحفظة)!`
+      );
+    } else {
+      showToast(
+        `⭐ تمت ترقية التخصيص إلى ★${previewLv} (+${previewDmdGain.toFixed(2)} DMD للمحفظة · -${previewSpent}★)!`
+      );
     }
-
-    const collected = target.dmdStored;
-    soundFX.playClaim();
-    setState((prev) => ({
-      ...prev,
-      dmdTotal: prev.dmdTotal + collected,
-      ducks: prev.ducks.map((d) =>
-        d.id === duckId ? { ...d, dmd: d.dmd + collected, dmdStored: 0 } : d
-      ),
-    }));
-    showToast(`تم جمع +${collected.toFixed(3)} DMD إلى رصيدك المستقبلي!`);
   };
 
   const handleUpgradeDuckSkill = (duckId: string) => {
@@ -754,20 +1168,14 @@ export default function App() {
     const pick = skins[slotIndex % skins.length];
 
     setState((prev) => {
-      const reserveDragon = prev.ducks.find((d) => d.slotIndex === null);
+      const nextSlots = slotIndex + 1;
+      const hasReserve = prev.ducks.some((d) => d.slotIndex === null);
       let nextDucks = prev.ducks;
-      let targetIdx = prev.activeDuckIndex;
+      let focusId = prev.ducks[prev.activeDuckIndex]?.id;
 
-      if (reserveDragon) {
-        nextDucks = prev.ducks.map((d, idx) => {
-          if (d.id !== reserveDragon.id) return d;
-          targetIdx = idx;
-          const updated = { ...d, slotIndex };
-          const rate = getDragonDmdPerHour(updated);
-          return { ...updated, staked: rate > 0, stakeRatePerHour: rate };
-        });
-      } else {
-        const rarity = slotIndex >= 5 ? 'RARE' : 'UNCOMMON';
+      if (!hasReserve) {
+        const rarity: Rarity = slotIndex >= 5 ? 'RARE' : 'UNCOMMON';
+        const reqFeeds = getLevelRequiredFeeds(1);
         const newDragon: Duck = {
           id: `dragon_slot_${slotIndex}_${Date.now()}`,
           name: SKIN_CATALOG[pick].name,
@@ -778,32 +1186,42 @@ export default function App() {
           customLevel: 0,
           dmd: 0,
           dmdStored: 0,
-          slotIndex,
-          feedCost: getFeedCost(1, rarity, getPlayerTier(prev)),
+          slotIndex: null,
+          feedCost: getFeedCost(1, rarity, getPlayerTier(prev), 0),
           feedsProgress: 0,
-          feedsRequired: 5,
+          feedsRequired: reqFeeds,
+          feedClicksSinceReset: 0,
+          costResetEndsAt: null,
+          levelFeedsCompleted: false,
+          breedingEndsAt: null,
+          breedingNextLevel: null,
+          lastBreedingEggAt: null,
           staked: false,
           stakeRatePerHour: 0,
+          sizeTier: 'NORMAL',
           skillLevel: 1,
           trainingLevel: 0,
           powerRating: slotIndex >= 5 ? 290 : 185,
           unlockedAt: Date.now(),
         };
         nextDucks = [...prev.ducks, newDragon];
-        targetIdx = nextDucks.length - 1;
+        focusId = newDragon.id;
       }
+
+      const normalized = normalizeDragonSlots(nextDucks, nextSlots);
+      const nextIdx = Math.max(0, normalized.findIndex((d) => d.id === focusId));
 
       return {
         ...prev,
         stars: prev.stars - meta.starCost,
         treasury: withBurnedStars(prev.treasury, meta.starCost),
-        unlockedSlots: slotIndex + 1,
-        ducks: nextDucks,
-        activeDuckIndex: targetIdx,
+        unlockedSlots: nextSlots,
+        ducks: normalized,
+        activeDuckIndex: nextIdx,
       };
     });
 
-    showToast(`تم فتح ${meta.label} (كفاءة ${meta.efficiencyPct}%) بنجاح!`);
+    showToast(`تم فتح ${meta.label} وتوزيع التنانين حسب أقدمية الحصول عليها!`);
   };
 
   const handleAssignDragonToSlot = (duckId: string, slotIndex: number) => {
@@ -816,16 +1234,8 @@ export default function App() {
       const oldSlot = movingDragon.slotIndex;
 
       const updatedDucks = prev.ducks.map((d) => {
-        if (d.id === duckId) {
-          const next = { ...d, slotIndex };
-          const rate = getDragonDmdPerHour(next);
-          return { ...next, staked: rate > 0, stakeRatePerHour: rate };
-        }
-        if (currentOccupant && d.id === currentOccupant.id) {
-          const next = { ...d, slotIndex: oldSlot };
-          const rate = getDragonDmdPerHour(next);
-          return { ...next, staked: rate > 0, stakeRatePerHour: rate };
-        }
+        if (d.id === duckId) return { ...d, slotIndex };
+        if (currentOccupant && d.id === currentOccupant.id) return { ...d, slotIndex: oldSlot };
         return d;
       });
       return { ...prev, ducks: updatedDucks };
@@ -833,45 +1243,71 @@ export default function App() {
     showToast(`تم نقل التنين إلى الخانة ${slotIndex + 1}!`);
   };
 
+  // === XL / XXL MERGING (Tiers 2..5 completed LVL 5: 4x NORMAL -> XL, 4x XL -> XXL) ===
   const handleMergeDucks = (duckIds: string[]) => {
     const picked = state.ducks.filter((d) => duckIds.includes(d.id));
     if (picked.length !== 4) return;
-    const curRarityIdx = RARITY_ORDER.indexOf(picked[0].rarity);
-    const nextRarity: Rarity = RARITY_ORDER[Math.min(curRarityIdx + 1, RARITY_ORDER.length - 1)];
+    const baseRarity = picked[0].rarity;
+    const baseSize = resolveDragonSize(picked[0]);
+    if (baseRarity === 'COMMON' || baseSize === 'XXL') return;
+    const allMatch = picked.every(
+      (d) =>
+        d.rarity === baseRarity &&
+        resolveDragonSize(d) === baseSize &&
+        d.level >= 5 &&
+        d.feedsProgress >= 500
+    );
+    if (!allMatch) {
+      soundFX.playError();
+      showToast('يجب اختيار 4 تنانين مكتملة LVL 5 من نفس التصنيف والحجم!');
+      return;
+    }
+
+    const nextSize = baseSize === 'NORMAL' ? 'XL' : 'XXL';
+    const curRarityIdx = RARITY_ORDER.indexOf(baseRarity);
     const skins: DuckSkinId[] = ['gamer', 'pumpkin', 'pharaoh', 'royal', 'cool'];
     const newSkin = skins[(curRarityIdx + state.stats.totalDucksMerged) % skins.length];
-    const freedSlot = picked.find((d) => d.slotIndex !== null)?.slotIndex ?? null;
-    const autoCollectedDmd = picked.reduce((acc, d) => acc + (d.dmdStored ?? 0), 0);
+    const tier = getPlayerTier(state);
+    const reqFeeds = getLevelRequiredFeeds(1);
 
     const mergedDragon: Duck = {
       id: `dragon_merged_${Date.now()}`,
-      name: SKIN_CATALOG[newSkin].name,
+      name: `${SKIN_CATALOG[newSkin].name} ${nextSize}`,
       skin: newSkin,
-      rarity: nextRarity,
+      rarity: baseRarity,
       level: 1,
       maxLevel: 5,
       customLevel: 0,
       dmd: 0,
       dmdStored: 0,
-      slotIndex: freedSlot,
-      feedCost: getFeedCost(1, nextRarity, getPlayerTier(state)),
+      slotIndex: null,
+      feedCost: getFeedCost(1, baseRarity, tier, 0, { sizeTier: nextSize, xl: true }),
       feedsProgress: 0,
-      feedsRequired: 5,
+      feedsRequired: reqFeeds,
+      feedClicksSinceReset: 0,
+      costResetEndsAt: null,
+      levelFeedsCompleted: false,
+      breedingEndsAt: null,
+      breedingNextLevel: null,
+      lastBreedingEggAt: null,
       staked: false,
       stakeRatePerHour: 0,
+      xl: true,
+      sizeTier: nextSize,
       skillLevel: 2,
       trainingLevel: 0,
-      powerRating: RARITY_STYLE[nextRarity].basePower + 55,
+      powerRating: RARITY_STYLE[baseRarity].basePower * (nextSize === 'XXL' ? 2 : 1.5),
       unlockedAt: Date.now(),
     };
 
     setState((prev) => {
       const remaining = prev.ducks.filter((d) => !duckIds.includes(d.id));
+      const normalized = normalizeDragonSlots([...remaining, mergedDragon], prev.unlockedSlots);
+      const mergedIdx = Math.max(0, normalized.findIndex((d) => d.id === mergedDragon.id));
       return {
         ...prev,
-        dmdTotal: prev.dmdTotal + autoCollectedDmd,
-        ducks: [mergedDragon, ...remaining],
-        activeDuckIndex: 0,
+        ducks: normalized,
+        activeDuckIndex: mergedIdx,
         battlePass: { ...prev.battlePass, xp: prev.battlePass.xp + 75 },
         stats: {
           ...prev.stats,
@@ -880,9 +1316,7 @@ export default function App() {
       };
     });
     showToast(
-      autoCollectedDmd > 0.0005
-        ? `نجح دمج التنانين! حصلت على تنين ${RARITY_STYLE[nextRarity].labelAr} وتم جمع +${autoCollectedDmd.toFixed(3)} DMD تلقائياً!`
-        : `نجح دمج التنانين! حصلت على تنين ${RARITY_STYLE[nextRarity].labelAr}!`
+      `نجح الدمج! حصلت على تنين ${RARITY_STYLE[baseRarity].labelAr} (${nextSize}) مستوى 1!`
     );
   };
 
@@ -892,6 +1326,23 @@ export default function App() {
       ducks: prev.ducks.map((d) => (d.id === duckId ? { ...d, gear, aura } : d)),
     }));
     showToast('تم حفظ مظهر التنين وتجهيزه بنجاح!');
+  };
+
+  const handleChangeDragonSkin = (duckId: string, skin: DuckSkinId) => {
+    if (!state.unlockedSkins.includes(skin)) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast('هذا المظهر غير مفتوح بعد! افتحه عبر عملة المظهر في قسم المهام.');
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      ducks: prev.ducks.map((d) =>
+        d.id === duckId ? { ...d, skin, name: SKIN_CATALOG[skin]?.name ?? d.name } : d
+      ),
+    }));
+    triggerTelegramHaptic('success');
+    showToast(`تم تجهيز مظهر ${SKIN_CATALOG[skin]?.name ?? skin} بنجاح!`);
   };
 
   // === STORE PACKAGE PURCHASE (Feeds 50% to DMD Reserve Treasury & 50% to Ops!) ===
@@ -906,10 +1357,9 @@ export default function App() {
     setState((prev) => {
       const tier = getPlayerTier(prev);
       let extraDucks = prev.ducks;
+      let nextActiveIdx = prev.activeDuckIndex;
       if (pkg.legendaryDragon) {
-        const freeSlot = Array.from({ length: prev.unlockedSlots }, (_, i) => i).find(
-          (sIdx) => !prev.ducks.some((dr) => dr.slotIndex === sIdx)
-        );
+        const reqFeeds = getLevelRequiredFeeds(3);
         const leg: Duck = {
           id: `dragon_store_${Date.now()}`,
           name: pkg.legendaryDragon.name,
@@ -920,12 +1370,19 @@ export default function App() {
           customLevel: 0,
           dmd: 0,
           dmdStored: 0,
-          slotIndex: freeSlot ?? null,
-          feedCost: getFeedCost(3, pkg.legendaryDragon.rarity, tier),
+          slotIndex: null,
+          feedCost: getFeedCost(3, pkg.legendaryDragon.rarity, tier, 0),
           feedsProgress: 0,
-          feedsRequired: 9,
+          feedsRequired: reqFeeds,
+          feedClicksSinceReset: 0,
+          costResetEndsAt: null,
+          levelFeedsCompleted: false,
+          breedingEndsAt: null,
+          breedingNextLevel: null,
+          lastBreedingEggAt: null,
           staked: false,
           stakeRatePerHour: 0,
+          sizeTier: 'NORMAL',
           gear: pkg.legendaryDragon.gear,
           aura: pkg.legendaryDragon.aura,
           skillLevel: 3,
@@ -933,7 +1390,8 @@ export default function App() {
           powerRating: RARITY_STYLE.LEGENDARY.basePower + 80,
           unlockedAt: Date.now(),
         };
-        extraDucks = [leg, ...prev.ducks];
+        extraDucks = normalizeDragonSlots([...prev.ducks, leg], prev.unlockedSlots);
+        nextActiveIdx = Math.max(0, extraDucks.findIndex((d) => d.id === leg.id));
       }
 
       const energyGrant = withEarnedEnergy(prev, pkg.energyReward, true);
@@ -944,7 +1402,7 @@ export default function App() {
         corn: energyGrant.corn,
         stars: prev.stars + pkg.starsReward,
         ducks: extraDucks,
-        activeDuckIndex: pkg.legendaryDragon ? 0 : prev.activeDuckIndex,
+        activeDuckIndex: nextActiveIdx,
         eggQueue: [...pkg.eggsReward, ...prev.eggQueue],
         treasury: {
           ...nextTreasury,
@@ -1193,10 +1651,15 @@ export default function App() {
         : state.grid.findIndex((c) => !c.locked && c.item === order.wantedItem);
     if (idx === -1) return;
 
+    const eventMods = resolveEventModifiers(
+      LIVE_EVENTS_REGISTRY[state.weekendEventIndex % LIVE_EVENTS_REGISTRY.length]
+    );
     const blitzMult = blitzSecLeft > 0 ? 2 : 1;
     const incubationMult = 1 + (state.pack.talents?.incubation ?? 0) * 0.03;
     const surgeMult = (state.activeBuffs?.eggSurgeUntil ?? 0) > Date.now() ? 1.2 : 1;
-    const rawOrderCorn = Math.round(order.cornReward * blitzMult * incubationMult * surgeMult);
+    const rawOrderCorn = Math.round(
+      order.cornReward * blitzMult * incubationMult * surgeMult * eventMods.templeEnergyMult
+    );
     const prestigeMult = 1 + (state.pack.talents?.prestige ?? 0) * 0.03;
     const basePts = activeGodHype ? Math.round(order.trophyPoints * 1.5) : order.trophyPoints;
     const ptsEarned = Math.round(basePts * blitzMult * prestigeMult);
@@ -1227,6 +1690,7 @@ export default function App() {
         ),
       };
     });
+    triggerTelegramHaptic('success');
     showToast(
       `تم تسليم ${EGG_ITEM_META[order.wantedItem].name}! +${rawOrderCorn} طاقة${goldGain > 0 ? ' و +1 💎' : ''} و +${ptsEarned} 🏆`
     );
@@ -1266,8 +1730,18 @@ export default function App() {
   const handleActivateGod = (godId: string, payWith: 'gold' | 'stars') => {
     const god = state.godCards.find((g) => g.id === godId);
     if (!god || god.owned) return;
-    if (payWith === 'gold' && state.duckGold < god.goldCost) return;
-    if (payWith === 'stars' && state.stars < god.starCost) return;
+    if (payWith === 'gold' && state.duckGold < god.goldCost) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${god.goldCost} من ذهب التنانين 💎 لتفعيل ${god.name}!`);
+      return;
+    }
+    if (payWith === 'stars' && state.stars < god.starCost) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${god.starCost} نجمة ★ لتفعيل ${god.name}!`);
+      return;
+    }
 
     setState((prev) => ({
       ...prev,
@@ -1308,101 +1782,87 @@ export default function App() {
     return pickedSkin;
   };
 
-  const handleSpinWheel = (mega: boolean) => {
+  const handleSpinWheel = (
+    mega: boolean
+  ): { segmentIndex: number; label: string; commitReward: () => void } | null => {
     if (mega && state.stars < 100) return null;
     if (!mega && state.stats.medals < 100) return null;
 
-    const outcomes = [
-      { label: mega ? '2,100 طاقة ⚡' : '420 طاقة ⚡', type: 'corn' as const, amount: mega ? 2100 : 420 },
-      { label: mega ? '28 نجوم ★' : '5 نجوم ★', type: 'stars' as const, amount: mega ? 28 : 5 },
-      { label: mega ? '22 ذهب 💎' : '5 ذهب 💎', type: 'gold' as const, amount: mega ? 22 : 5 },
-      { label: 'تنين نادر 🐉', type: 'duck' as const, amount: 1 },
-      { label: mega ? '110 ميدالية 🏅' : '45 ميدالية 🏅', type: 'medals' as const, amount: mega ? 110 : 45 },
-    ];
-    const pick = outcomes[Math.floor(Math.random() * outcomes.length)];
+    const segIdx = Math.floor(Math.random() * WHEEL_REWARDS_REGISTRY.length);
+    const seg = WHEEL_REWARDS_REGISTRY[segIdx];
+    const mult = mega ? 5 : 1;
+    const bundle: RewardBundle = {
+      corn: seg.reward.corn ? seg.reward.corn * mult : undefined,
+      stars: seg.reward.stars ? seg.reward.stars * mult : undefined,
+      duckGold: seg.reward.duckGold ? seg.reward.duckGold * mult : undefined,
+      medals: seg.reward.medals ? seg.reward.medals * mult : undefined,
+      eggs: seg.reward.eggs
+        ? Array.from({ length: mega ? 3 : 1 }, () => seg.reward.eggs!).flat()
+        : undefined,
+    };
 
     setState((prev) => {
-      let extraDucks = prev.ducks;
-      if (pick.type === 'duck') {
-        const freeSlot = Array.from({ length: prev.unlockedSlots }, (_, i) => i).find(
-          (sIdx) => !prev.ducks.some((dr) => dr.slotIndex === sIdx)
-        );
-        const newDragon: Duck = {
-          id: `dragon_wheel_${Date.now()}`,
-          name: 'التنين الإمبراطوري الملكي',
-          skin: 'royal',
-          rarity: 'RARE',
-          level: 1,
-          maxLevel: 5,
-          customLevel: 0,
-          dmd: 0,
-          dmdStored: 0,
-          slotIndex: freeSlot ?? null,
-          feedCost: getFeedCost(1, 'RARE', getPlayerTier(prev)),
-          feedsProgress: 0,
-          feedsRequired: 5,
-          staked: false,
-          stakeRatePerHour: 0,
-          skillLevel: 2,
-          trainingLevel: 0,
-          powerRating: 315,
-          unlockedAt: Date.now(),
-        };
-        extraDucks = [...prev.ducks, newDragon];
-      }
-      const energyGrant =
-        pick.type === 'corn'
-          ? withEarnedEnergy(prev, pick.amount)
-          : { corn: prev.corn, finalGain: 0, damped: false, treasury: prev.treasury };
-      let nextTreasury = mega ? withBurnedStars(energyGrant.treasury, 100) : energyGrant.treasury;
-      if (pick.type === 'stars') nextTreasury = withEarnedStars(nextTreasury, pick.amount);
+      if (mega && prev.stars < 100) return prev;
+      if (!mega && prev.stats.medals < 100) return prev;
       return {
         ...prev,
-        corn: energyGrant.corn,
-        stars: (mega ? prev.stars - 100 : prev.stars) + (pick.type === 'stars' ? pick.amount : 0),
-        duckGold: pick.type === 'gold' ? prev.duckGold + pick.amount : prev.duckGold,
-        treasury: nextTreasury,
-        ducks: extraDucks,
+        stars: mega ? prev.stars - 100 : prev.stars,
+        treasury: mega ? withBurnedStars(prev.treasury, 100) : prev.treasury,
         stats: {
           ...prev.stats,
-          medals: (!mega ? prev.stats.medals - 100 : prev.stats.medals) + (pick.type === 'medals' ? pick.amount : 0),
+          medals: !mega ? prev.stats.medals - 100 : prev.stats.medals,
           wheelSpins: prev.stats.wheelSpins + 1,
         },
       };
     });
 
-    return pick;
+    let committed = false;
+    return {
+      segmentIndex: segIdx,
+      label: mega ? `${seg.label} (×${mult})` : seg.label,
+      commitReward: () => {
+        if (committed) return;
+        committed = true;
+        setState((prev) => grantRewardBundle(prev, bundle, { applySoftCap: true }).nextState);
+      },
+    };
   };
 
   const handleRedeemPromo = (code: string): { ok: boolean; message: string } => {
-    const valid: Record<string, { corn: number; stars: number; gold: number; label: string }> = {
-      DRAGON2026: { corn: 400, stars: 6, gold: 0, label: '+400 طاقة و +6 ★' },
-      GOLD100: { corn: 0, stars: 0, gold: 8, label: '+8 ذهب تنانين' },
-      DRACO50: { corn: 260, stars: 4, gold: 0, label: '+260 طاقة و +4 ★' },
-    };
-    const match = valid[code];
-    if (!match) return { ok: false, message: 'الرمز غير صحيح! جرّب DRAGON2026 أو GOLD100' };
-    if (state.usedPromoCodes.includes(code)) return { ok: false, message: 'تم استخدام هذا الرمز مسبقاً.' };
+    const normalized = code.trim().toUpperCase();
+    const match = PROMO_CODES_REGISTRY.find((p) => p.code.toUpperCase() === normalized);
+    if (!match) {
+      return {
+        ok: false,
+        message: `الرمز غير صحيح! جرّب ${PROMO_CODES_REGISTRY[0]?.code ?? 'DRAGON'} أو ${PROMO_CODES_REGISTRY[1]?.code ?? 'DMD2025'}`,
+      };
+    }
+    if (state.usedPromoCodes.includes(match.code)) {
+      return { ok: false, message: 'تم استخدام هذا الرمز مسبقاً.' };
+    }
 
     setState((prev) => {
-      const energyGrant = withEarnedEnergy(prev, match.corn);
+      if (prev.usedPromoCodes.includes(match.code)) return prev;
+      const granted = grantRewardBundle(prev, match.reward, { applySoftCap: true }).nextState;
       return {
-        ...prev,
-        corn: energyGrant.corn,
-        stars: prev.stars + match.stars,
-        duckGold: prev.duckGold + match.gold,
-        treasury: withEarnedStars(energyGrant.treasury, match.stars),
-        usedPromoCodes: [...prev.usedPromoCodes, code],
+        ...granted,
+        usedPromoCodes: [...granted.usedPromoCodes, match.code],
       };
     });
-    return { ok: true, message: `تم التفعيل! حصلت على ${match.label}` };
+    triggerTelegramHaptic('success');
+    return { ok: true, message: `تم التفعيل! حصلت على ${match.labelAr}` };
   };
 
   const handleBidListing = (listingId: string) => {
     const item = state.marketListings.find((l) => l.id === listingId);
     if (!item || item.soldStatus !== 'ACTIVE') return;
     const bidCost = Math.round(item.cornPrice * 1.12);
-    if (state.corn < bidCost) return;
+    if (state.corn < bidCost) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${bidCost.toLocaleString()} طاقة للمزايدة!`);
+      return;
+    }
 
     setState((prev) => ({
       ...prev,
@@ -1426,11 +1886,16 @@ export default function App() {
 
   const handleBuyNowListing = (listingId: string) => {
     const item = state.marketListings.find((l) => l.id === listingId);
-    if (!item || item.soldStatus !== 'ACTIVE' || state.stars < item.starPrice) return;
+    if (!item || item.soldStatus !== 'ACTIVE') return;
+    if (state.stars < item.starPrice) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast(`تحتاج ${item.starPrice} نجمة ★ للشراء الفوري!`);
+      return;
+    }
 
-    const freeSlot = Array.from({ length: state.unlockedSlots }, (_, i) => i).find(
-      (sIdx) => !state.ducks.some((dr) => dr.slotIndex === sIdx)
-    );
+    const sz = item.xl ? 'XL' : 'NORMAL';
+    const reqFeeds = getLevelRequiredFeeds(item.level);
     const wonDragon: Duck = {
       id: `dragon_buy_${Date.now()}`,
       name: item.duckName,
@@ -1441,37 +1906,59 @@ export default function App() {
       customLevel: 0,
       dmd: 0,
       dmdStored: 0,
-      slotIndex: freeSlot ?? null,
-      feedCost: getFeedCost(item.level, item.rarity, getPlayerTier(state)),
-      feedsProgress: item.level >= 5 ? 12 : 0,
-      feedsRequired: DUCK_EVOLUTION_LEVELS[Math.max(0, Math.min(4, item.level - 1))].feedsRequired,
+      slotIndex: null,
+      feedCost: getFeedCost(item.level, item.rarity, getPlayerTier(state), 0, {
+        sizeTier: sz,
+        xl: Boolean(item.xl),
+      }),
+      feedsProgress: item.level >= 5 ? reqFeeds : 0,
+      feedsRequired: reqFeeds,
+      feedClicksSinceReset: 0,
+      costResetEndsAt: null,
+      levelFeedsCompleted: item.level >= 5,
+      breedingEndsAt: null,
+      breedingNextLevel: null,
+      lastBreedingEggAt: null,
       staked: false,
       stakeRatePerHour: 0,
       xl: item.xl,
+      sizeTier: sz,
       skillLevel: 2,
       trainingLevel: 0,
       powerRating: RARITY_STYLE[item.rarity].basePower + item.level * 20,
       unlockedAt: Date.now(),
     };
 
+    const soldNow = Date.now();
     setState((prev) => ({
       ...prev,
       stars: prev.stars - item.starPrice,
       treasury: withBurnedStars(prev.treasury, item.starPrice),
-      ducks: [...prev.ducks, wonDragon],
+      ducks: normalizeDragonSlots([...prev.ducks, wonDragon], prev.unlockedSlots),
       marketListings: prev.marketListings.map((l) =>
-        l.id === listingId ? { ...l, soldStatus: 'SOLD_YOU', timeLeftSec: 0 } : l
+        l.id === listingId ? { ...l, soldStatus: 'SOLD_YOU', soldAt: soldNow, timeLeftSec: 0 } : l
       ),
     }));
     showToast(`تم اقتناء ${item.duckName} بنجاح!`);
   };
 
   const handleBattleResult = useCallback(
-    (won: boolean, rewardCorn: number, rewardStars: number, leaguePts: number, xp: number, gold: number) => {
-      const eventStarMult = won ? currentWeekendEvent.starBonusMult : 1;
+    (
+      won: boolean,
+      rewardCorn: number,
+      rewardStars: number,
+      leaguePts: number,
+      xp: number,
+      gold: number,
+      rewardMedals = 0
+    ) => {
       const plunderMult = activeGodPlunder && won ? 1.35 : 1;
 
       setState((prev) => {
+        const eventMods = resolveEventModifiers(
+          LIVE_EVENTS_REGISTRY[prev.weekendEventIndex % LIVE_EVENTS_REGISTRY.length]
+        );
+        const eventStarMult = won ? eventMods.starBonusMult : 1;
         const activeDragon = prev.ducks[prev.activeDuckIndex] ?? prev.ducks[0];
         const pharaohMult = won && activeDragon?.skin === 'pharaoh' ? 1.2 : 1;
         const royalMult = activeDragon?.skin === 'royal' ? 1.2 : 1;
@@ -1479,11 +1966,16 @@ export default function App() {
         const capRatio = won && winsUsed >= ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS
           ? ECONOMY_LIMITS.ARENA_AFTER_CAP_RATIO
           : 1;
-        const rawCorn = Math.max(15, Math.round(rewardCorn * plunderMult * pharaohMult * capRatio));
+        const rawCorn = Math.max(
+          15,
+          Math.round(rewardCorn * plunderMult * pharaohMult * capRatio * eventMods.arenaEnergyMult)
+        );
         const finalStars = won
           ? Math.max(1, Math.round(rewardStars * eventStarMult * capRatio))
           : rewardStars;
         const finalGold = gold > 0 ? Math.max(1, Math.round(gold * pharaohMult * capRatio)) : 0;
+        const finalMedals =
+          won && rewardMedals > 0 ? Math.max(1, Math.round(rewardMedals * capRatio)) : 0;
         const prestigeMult = 1 + (prev.pack.talents?.prestige ?? 0) * 0.03;
         const finalLeaguePts = Math.round(leaguePts * prestigeMult);
         const finalXp = Math.round(xp * royalMult);
@@ -1503,6 +1995,10 @@ export default function App() {
               ? Math.min(ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS + 99, winsUsed + 1)
               : winsUsed,
           },
+          stats:
+            finalMedals > 0
+              ? { ...prev.stats, medals: prev.stats.medals + finalMedals }
+              : prev.stats,
           league: {
             ...prev.league,
             points: prev.league.points + finalLeaguePts,
@@ -1515,22 +2011,29 @@ export default function App() {
         };
       });
     },
-    [activeGodPlunder, currentWeekendEvent.starBonusMult]
+    [activeGodPlunder]
   );
 
   const handleRaceResult = useCallback(
     (place: number, rewardCorn: number, rewardStars: number, leaguePts: number, xp: number) => {
-      const activeDragon = state.ducks[state.activeDuckIndex] ?? state.ducks[0];
+      const cur = latestStateRef.current;
+      const eventMods = resolveEventModifiers(
+        LIVE_EVENTS_REGISTRY[cur.weekendEventIndex % LIVE_EVENTS_REGISTRY.length]
+      );
+      const activeDragon = cur.ducks[cur.activeDuckIndex] ?? cur.ducks[0];
       const pharaohMult = place <= 2 && activeDragon?.skin === 'pharaoh' ? 1.2 : 1;
       const royalMult = activeDragon?.skin === 'royal' ? 1.2 : 1;
-      const winsUsed = state.treasury.arenaFullWinsToday ?? 0;
+      const winsUsed = cur.treasury.arenaFullWinsToday ?? 0;
       const isFullWinCounted = place <= 2;
       const capRatio = isFullWinCounted && winsUsed >= ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS
         ? ECONOMY_LIMITS.ARENA_AFTER_CAP_RATIO
         : 1;
-      const rawCorn = Math.max(20, Math.round(rewardCorn * pharaohMult * capRatio));
+      const rawCorn = Math.max(
+        20,
+        Math.round(rewardCorn * pharaohMult * capRatio * eventMods.arenaEnergyMult)
+      );
       const finalStars = rewardStars > 0
-        ? Math.max(1, Math.round(rewardStars * currentWeekendEvent.starBonusMult * capRatio))
+        ? Math.max(1, Math.round(rewardStars * eventMods.starBonusMult * capRatio))
         : 0;
       const finalXp = Math.round(xp * royalMult);
 
@@ -1546,7 +2049,7 @@ export default function App() {
           treasury: {
             ...nextTreasury,
             arenaFullWinsToday: isFullWinCounted
-              ? (nextTreasury.arenaFullWinsToday ?? 0) + 1
+              ? Math.min(ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS + 99, (nextTreasury.arenaFullWinsToday ?? 0) + 1)
               : nextTreasury.arenaFullWinsToday ?? 0,
           },
           league: {
@@ -1560,11 +2063,16 @@ export default function App() {
         `أنهيت السباق في المركز #${place}! +${rawCorn.toLocaleString()} طاقة${finalStars > 0 ? ` و +${finalStars} ★` : ''}`
       );
     },
-    [currentWeekendEvent.starBonusMult, showToast, state.activeDuckIndex, state.ducks, state.treasury.arenaFullWinsToday]
+    [showToast]
   );
 
   const handleClaimDailyLeague = () => {
-    if (state.league.dailyClaimed) return;
+    if (state.league.dailyClaimed) {
+      soundFX.playError();
+      triggerTelegramHaptic('error');
+      showToast('تم استلام مكافأة الدوري اليومية بالفعل!');
+      return;
+    }
     const meta = getLeagueMeta(state.league.points);
     setState((p) => {
       const energyGrant = withEarnedEnergy(p, meta.dailyCorn);
@@ -1610,33 +2118,35 @@ export default function App() {
         if (!prev.battlePass.premiumUnlocked || prev.battlePass.claimedPremium.includes(level)) return prev;
         let extraDucks = prev.ducks;
         if (meta.premiumType === 'duck') {
-          const freeSlot = Array.from({ length: prev.unlockedSlots }, (_, i) => i).find(
-            (sIdx) => !prev.ducks.some((dr) => dr.slotIndex === sIdx)
-          );
-          extraDucks = [
-            {
-              id: `dragon_bp_${Date.now()}`,
-              name: 'التنين الإمبراطوري الأسطوري',
-              skin: 'royal',
-              rarity: 'LEGENDARY',
-              level: 1,
-              maxLevel: 5,
-              customLevel: 0,
-              dmd: 0,
-              dmdStored: 0,
-              slotIndex: freeSlot ?? null,
-              feedCost: getFeedCost(1, 'LEGENDARY', getPlayerTier(prev)),
-              feedsProgress: 0,
-              feedsRequired: 5,
-              staked: false,
-              stakeRatePerHour: 0,
-              skillLevel: 3,
-              trainingLevel: 0,
-              powerRating: 750,
-              unlockedAt: Date.now(),
-            },
-            ...prev.ducks,
-          ];
+          const bpDragon: Duck = {
+            id: `dragon_bp_${Date.now()}`,
+            name: 'التنين الإمبراطوري الأسطوري',
+            skin: 'royal',
+            rarity: 'LEGENDARY',
+            level: 1,
+            maxLevel: 5,
+            customLevel: 0,
+            dmd: 0,
+            dmdStored: 0,
+            slotIndex: null,
+            feedCost: getFeedCost(1, 'LEGENDARY', getPlayerTier(prev), 0),
+            feedsProgress: 0,
+            feedsRequired: getLevelRequiredFeeds(1),
+            feedClicksSinceReset: 0,
+            costResetEndsAt: null,
+            levelFeedsCompleted: false,
+            breedingEndsAt: null,
+            breedingNextLevel: null,
+            lastBreedingEggAt: null,
+            staked: false,
+            stakeRatePerHour: 0,
+            sizeTier: 'NORMAL',
+            skillLevel: 3,
+            trainingLevel: 0,
+            powerRating: 750,
+            unlockedAt: Date.now(),
+          };
+          extraDucks = normalizeDragonSlots([...prev.ducks, bpDragon], prev.unlockedSlots);
         }
         return {
           ...prev,
@@ -1665,6 +2175,8 @@ export default function App() {
   if (screen === 'TITLE') {
     return (
       <TitleScreen
+        username={state.username}
+        isTelegramVerified={Boolean(getTelegramUser())}
         hasSavedProgress={hasSave}
         savedDmd={state.dmdTotal}
         savedDuckCount={state.ducks.length}
@@ -1674,14 +2186,8 @@ export default function App() {
           setScreen('PLAYING');
           if (!offlineNoticeShown && initialLoaded.offlineDmdEarned > 0.0005) {
             setOfflineNoticeShown(true);
-            showToast(`🐉 ولّدت تنانينك +${initialLoaded.offlineDmdEarned.toFixed(3)} DMD أثناء غيابك!`);
+            showToast(`🐉 تم حفظ +${initialLoaded.offlineDmdEarned.toFixed(2)} DMD في محفظتك بنجاح!`);
           }
-        }}
-        onResetNewGame={() => {
-          const fresh = createInitialGameState();
-          setState(fresh);
-          setOfflineNoticeShown(true);
-          setScreen('PLAYING');
         }}
       />
     );
@@ -1690,7 +2196,7 @@ export default function App() {
   return (
     <div className="h-full w-full flex flex-col bg-[#0b0d14] text-slate-100 overflow-hidden select-none">
       {/* Persistent Top Bar (Overlap-Free Mobile & Desktop) */}
-      <header className="shrink-0 h-14 px-2 sm:px-5 bg-[#12151f] border-b border-slate-800/90 flex items-center justify-between gap-1.5 z-20">
+      <header className="pt-safe shrink-0 min-h-14 px-2 sm:px-5 bg-[#12151f] border-b border-slate-800/90 flex items-center justify-between gap-1.5 z-20">
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
             onClick={() => setModal('PAUSE')}
@@ -1776,8 +2282,9 @@ export default function App() {
             state={state}
             onSelectDuck={(idx) => setState((p) => ({ ...p, activeDuckIndex: idx }))}
             onFeedDuck={handleFeedDuck}
+            onStartBreeding={handleStartBreeding}
+            onUpgradeXlWithEggs={handleUpgradeXlWithEggs}
             onUpgradeStarCustomization={handleUpgradeStarCustomization}
-            onCollectDragonDmd={handleCollectDragonDmd}
             onUpgradeDuckSkill={handleUpgradeDuckSkill}
             onTrainDragon={handleTrainDragon}
             onOpenSquadTalents={() => {
@@ -1785,6 +2292,7 @@ export default function App() {
               setModal('PACK');
             }}
             onCustomizeDuck={handleCustomizeDuck}
+            onChangeDragonSkin={handleChangeDragonSkin}
             onUnlockSlot={handleUnlockDragonSlot}
             onAssignSlot={handleAssignDragonToSlot}
             onMergeDucks={handleMergeDucks}
@@ -1873,18 +2381,19 @@ export default function App() {
             state={state}
             initialSubTab={godsInitialSubTab}
             onActivateGod={handleActivateGod}
-            onClaimTreasureStep={(threshold, cornReward, starReward) => {
+            onClaimTreasureStep={(threshold, stepNumber) => {
+              const step = TREASURE_RACE_STEPS.find((s) => s.step === stepNumber);
+              if (!step) return;
               setState((p) => {
-                const energyGrant = withEarnedEnergy(p, cornReward);
+                if (p.claimedTreasureSteps.includes(threshold)) return p;
+                const granted = grantRewardBundle(p, step.reward, { applySoftCap: true }).nextState;
                 return {
-                  ...p,
-                  corn: energyGrant.corn,
-                  stars: p.stars + starReward,
-                  treasury: withEarnedStars(energyGrant.treasury, starReward),
-                  claimedTreasureSteps: [...p.claimedTreasureSteps, threshold],
+                  ...granted,
+                  claimedTreasureSteps: [...granted.claimedTreasureSteps, threshold],
                 };
               });
-              showToast(`تم استلام مكافأة الكنز (+${cornReward.toLocaleString()} طاقة و +${starReward} ★)!`);
+              triggerTelegramHaptic('success');
+              showToast(`تم استلام مكافأة ${step.titleAr} (${step.rewardLabelAr})!`);
             }}
             onOpenExchangeGold={() => setModal('WALLET')}
           />
@@ -1897,94 +2406,64 @@ export default function App() {
             onOpenDailyTasks={() => setModal('DAILY_TASKS')}
             onOpenTrader={() => setModal('TRADER')}
             onFlipCoin={handleFlipCoin}
-            onClaimHonorPack={(id, cost, cornReward, starReward) => {
+            onClaimHonorPack={(packId) => {
+              const pack = HONOR_PACKS_REGISTRY.find((h) => h.id === packId);
+              if (!pack) return;
+              if (state.stats.honorLetters < pack.costLetters) {
+                soundFX.playError();
+                showToast('رسائل الشرف غير كافية!');
+                return;
+              }
               setState((p) => {
-                const energyGrant = withEarnedEnergy(p, cornReward);
-                return {
+                if (p.claimedHonorPacks.includes(packId) || p.stats.honorLetters < pack.costLetters) return p;
+                const deducted: GameState = {
                   ...p,
-                  corn: energyGrant.corn,
-                  stars: p.stars + starReward,
-                  treasury: withEarnedStars(energyGrant.treasury, starReward),
-                  claimedHonorPacks: [...p.claimedHonorPacks, id],
-                  stats: { ...p.stats, honorLetters: p.stats.honorLetters - cost },
+                  stats: { ...p.stats, honorLetters: p.stats.honorLetters - pack.costLetters },
+                  claimedHonorPacks: [...p.claimedHonorPacks, packId],
                 };
+                return grantRewardBundle(deducted, pack.reward, { applySoftCap: true }).nextState;
               });
-              showToast(`تم استلام حزمة الشرف (+${cornReward.toLocaleString()} طاقة و +${starReward} ★)!`);
+              showToast(`تم استلام ${pack.titleAr} (${pack.rewardDescAr})!`);
             }}
             onClaimWatchBonus={() => handleWatchRewardedAd('energy')}
-            onClaimAchievement={(id, rewardCorn, rewardStars) => {
+            onClaimAchievement={(id) => {
+              const ach = ACHIEVEMENTS_REGISTRY.find((a) => a.id === id);
+              if (!ach) return;
               setState((p) => {
-                const energyGrant = withEarnedEnergy(p, rewardCorn);
+                if (p.claimedAchievements.includes(id)) return p;
+                const granted = grantRewardBundle(p, ach.reward, { applySoftCap: true }).nextState;
                 return {
-                  ...p,
-                  corn: energyGrant.corn,
-                  stars: p.stars + rewardStars,
-                  treasury: withEarnedStars(energyGrant.treasury, rewardStars),
-                  claimedAchievements: [...p.claimedAchievements, id],
+                  ...granted,
+                  claimedAchievements: [...granted.claimedAchievements, id],
                 };
               });
-              showToast('تم استلام مكافأة الإنجاز!');
+              showToast(`تم استلام إنجاز "${ach.titleAr}" (${ach.rewardLabelAr})!`);
             }}
-            onClaimHeartMilestone={(threshold, rewardType) => {
+            onClaimHeartMilestone={(threshold) => {
+              const milestone = HEART_MILESTONES_REGISTRY.find((m) => m.targetHearts === threshold);
+              if (!milestone) return;
               setState((p) => {
-                let extraDucks = p.ducks;
-                if (rewardType === 'duck') {
-                  const freeSlot = Array.from({ length: p.unlockedSlots }, (_, i) => i).find(
-                    (sIdx) => !p.ducks.some((dr) => dr.slotIndex === sIdx)
-                  );
-                  extraDucks = [
-                    ...p.ducks,
-                    {
-                      id: `dragon_heart_${Date.now()}`,
-                      name: 'تنين القلوب الوردية',
-                      skin: 'cupid',
-                      rarity: 'RARE',
-                      level: 1,
-                      maxLevel: 5,
-                      customLevel: 0,
-                      dmd: 0,
-                      dmdStored: 0,
-                      slotIndex: freeSlot ?? null,
-                      feedCost: getFeedCost(1, 'RARE', getPlayerTier(p)),
-                      feedsProgress: 0,
-                      feedsRequired: 5,
-                      staked: false,
-                      stakeRatePerHour: 0,
-                      skillLevel: 2,
-                      trainingLevel: 0,
-                      powerRating: 310,
-                      unlockedAt: Date.now(),
-                    },
-                  ];
-                }
-                const energyGrant =
-                  rewardType === 'corn'
-                    ? withEarnedEnergy(p, 380)
-                    : { corn: p.corn, finalGain: 0, damped: false, treasury: p.treasury };
-                const nextTreasury =
-                  rewardType === 'stars' ? withEarnedStars(energyGrant.treasury, 4) : energyGrant.treasury;
+                if (p.claimedHeartMilestones.includes(threshold)) return p;
+                const granted = grantRewardBundle(p, milestone.reward, { applySoftCap: true }).nextState;
                 return {
-                  ...p,
-                  stars: rewardType === 'stars' ? p.stars + 4 : p.stars,
-                  corn: energyGrant.corn,
-                  treasury: nextTreasury,
-                  ducks: extraDucks,
-                  claimedHeartMilestones: [...p.claimedHeartMilestones, threshold],
+                  ...granted,
+                  claimedHeartMilestones: [...granted.claimedHeartMilestones, threshold],
                 };
               });
-              showToast('تم استلام مكافأة القلوب!');
+              showToast(`تم استلام مكافأة القلوب (${milestone.rewardLabelAr})!`);
             }}
-            onClaimSocial={(id, rewardCorn) => {
+            onClaimSocial={(id) => {
+              const soc = SOCIAL_TASKS_REGISTRY.find((s) => s.id === id);
+              if (!soc) return;
               setState((p) => {
-                const energyGrant = withEarnedEnergy(p, rewardCorn);
+                if (p.claimedSocials.includes(id)) return p;
+                const granted = grantRewardBundle(p, soc.reward, { applySoftCap: true }).nextState;
                 return {
-                  ...p,
-                  corn: energyGrant.corn,
-                  treasury: energyGrant.treasury,
-                  claimedSocials: [...p.claimedSocials, id],
+                  ...granted,
+                  claimedSocials: [...granted.claimedSocials, id],
                 };
               });
-              showToast(`+${rewardCorn} طاقة من المهام الاجتماعية!`);
+              showToast(`تم التحقق! ${soc.rewardDescAr}`);
             }}
             onRedeemPromo={handleRedeemPromo}
             onSpinWheel={handleSpinWheel}
@@ -2019,9 +2498,6 @@ export default function App() {
                 showToast(`تحتاج ${cost} ★ للاستدعاء الفوري!`);
                 return;
               }
-              const freeSlot = Array.from({ length: state.unlockedSlots }, (_, i) => i).find(
-                (sIdx) => !state.ducks.some((dr) => dr.slotIndex === sIdx)
-              );
               const newDragon: Duck = {
                 id: `dragon_inst_${Date.now()}`,
                 name: rarity === 'RARE' ? 'تنين الرمال الفرعوني' : 'تنين الجحيم اليقطيني',
@@ -2032,24 +2508,35 @@ export default function App() {
                 customLevel: 0,
                 dmd: 0,
                 dmdStored: 0,
-                slotIndex: freeSlot ?? null,
-                feedCost: getFeedCost(1, rarity, getPlayerTier(state)),
+                slotIndex: null,
+                feedCost: getFeedCost(1, rarity, getPlayerTier(state), 0),
                 feedsProgress: 0,
-                feedsRequired: 5,
+                feedsRequired: getLevelRequiredFeeds(1),
+                feedClicksSinceReset: 0,
+                costResetEndsAt: null,
+                levelFeedsCompleted: false,
+                breedingEndsAt: null,
+                breedingNextLevel: null,
+                lastBreedingEggAt: null,
                 staked: false,
                 stakeRatePerHour: 0,
+                sizeTier: 'NORMAL',
                 skillLevel: 2,
                 trainingLevel: 0,
                 powerRating: RARITY_STYLE[rarity].basePower + 25,
                 unlockedAt: Date.now(),
               };
-              setState((p) => ({
-                ...p,
-                stars: p.stars - cost,
-                treasury: withBurnedStars(p.treasury, cost),
-                ducks: [newDragon, ...p.ducks],
-                activeDuckIndex: 0,
-              }));
+              setState((p) => {
+                const normalized = normalizeDragonSlots([...p.ducks, newDragon], p.unlockedSlots);
+                const newIdx = Math.max(0, normalized.findIndex((d) => d.id === newDragon.id));
+                return {
+                  ...p,
+                  stars: p.stars - cost,
+                  treasury: withBurnedStars(p.treasury, cost),
+                  ducks: normalized,
+                  activeDuckIndex: newIdx,
+                };
+              });
               showToast(`تم استدعاء تنين ${RARITY_STYLE[rarity].labelAr} فوري!`);
             }}
           />
@@ -2064,11 +2551,13 @@ export default function App() {
               setState((p) => {
                 const soldDragon = p.ducks.find((d) => d.id === duckId);
                 if (!soldDragon || p.ducks.length <= 1) return p;
-                const remaining = p.ducks.filter((d) => d.id !== duckId);
+                const remaining = normalizeDragonSlots(
+                  p.ducks.filter((d) => d.id !== duckId),
+                  p.unlockedSlots
+                );
                 const energyGrant = withEarnedEnergy(p, cornPrice);
                 return {
                   ...p,
-                  dmdTotal: p.dmdTotal + (soldDragon.dmdStored ?? 0),
                   corn: energyGrant.corn,
                   treasury: energyGrant.treasury,
                   ducks: remaining,
@@ -2138,7 +2627,7 @@ export default function App() {
       </main>
 
       {/* Persistent 6-Tab Bottom Navigation Bar */}
-      <nav className="shrink-0 h-16 bg-[#12151f] border-t border-slate-800/90 px-1 flex items-center justify-around z-20">
+      <nav className="pb-safe shrink-0 min-h-16 bg-[#12151f] border-t border-slate-800/90 px-1 flex items-center justify-around z-20">
         {[
           { id: 'MARKET' as MainTab, label: 'المتجر', icon: TrendingUp, badge: 0 },
           { id: 'EGGS' as MainTab, label: 'البيض', icon: Egg, badge: state.eggQueue.length },
@@ -2154,12 +2643,13 @@ export default function App() {
               key={item.id}
               onClick={() => {
                 soundFX.playTabSwitch();
+                triggerTelegramHaptic('light');
                 if (item.id === 'GODS') {
                   setGodsInitialSubTab('GODS');
                 }
                 setActiveTab(item.id);
               }}
-              className={`relative flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-2xl transition-all cursor-pointer min-w-[50px] ${
+              className={`relative flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-2xl transition-all cursor-pointer min-w-[50px] min-h-[48px] ${
                 active ? 'text-amber-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -2185,24 +2675,24 @@ export default function App() {
         onSwitchTab={(t) => setActiveTab(t)}
         onUpgradeSquadTalent={handleUpgradeSquadTalent}
         onForgeRelic={handleForgeRelic}
-        onClaimTournamentMilestone={(threshold, type, amount) => {
-          setState((p) => ({
-            ...p,
-            duckGold: type === 'gold' ? p.duckGold + amount : p.duckGold,
-            eggQueue:
-              type === 'eggs'
-                ? [...p.eggQueue, ...Array.from({ length: amount }, () => 'egg_1' as EggItemType)]
-                : p.eggQueue,
-            stats: {
-              ...p.stats,
-              medals: type === 'medals' ? p.stats.medals + amount : p.stats.medals,
-            },
-            tournament: {
-              ...p.tournament,
-              claimedMilestones: [...p.tournament.claimedMilestones, threshold],
-            },
-          }));
-          showToast('تم استلام جائزة البطولة الكبرى!');
+        onClaimTournamentMilestone={(scoreThreshold) => {
+          const milestone = TOURNAMENT_MILESTONES.find((m) => m.score === scoreThreshold);
+          if (!milestone) return;
+          setState((p) => {
+            if (p.tournament.score < milestone.score || p.tournament.claimedMilestones.includes(scoreThreshold)) {
+              return p;
+            }
+            const granted = grantRewardBundle(p, milestone.reward, { applySoftCap: true }).nextState;
+            return {
+              ...granted,
+              tournament: {
+                ...granted.tournament,
+                claimedMilestones: [...granted.tournament.claimedMilestones, scoreThreshold],
+              },
+            };
+          });
+          triggerTelegramHaptic('success');
+          showToast(`تم استلام جائزة البطولة الكبرى (${milestone.labelAr})!`);
         }}
         onBuyTraderDeal={() => {
           const dealCost = getTraderDealStarCost(getPlayerTier(state));
@@ -2271,32 +2761,46 @@ export default function App() {
           showToast('تم استلام مكافأة المرحلة!');
         }}
         onClaimDailyPassDay={() => {
+          if (state.stats.dailyPassClaimedToday) {
+            soundFX.playError();
+            showToast('تم استلام مكافأة اليوم بالفعل!');
+            return;
+          }
+          const currentDay = Math.min(7, Math.max(1, state.stats.dailyPassDay || 1));
+          const dayConfig = DAILY_PASS_REWARDS[currentDay - 1] ?? DAILY_PASS_REWARDS[0];
           setState((p) => {
-            const energyGrant = withEarnedEnergy(p, 320);
+            if (p.stats.dailyPassClaimedToday) return p;
+            const granted = grantRewardBundle(p, dayConfig.reward, { applySoftCap: true }).nextState;
             return {
-              ...p,
-              corn: energyGrant.corn,
-              stars: p.stars + 3,
-              treasury: withEarnedStars(energyGrant.treasury, 3),
-              eggQueue: ['egg_2', 'egg_2', ...p.eggQueue],
+              ...granted,
               stats: {
-                ...p.stats,
+                ...granted.stats,
                 dailyPassClaimedToday: true,
-                autoMergeBoosters: p.stats.autoMergeBoosters + 1,
               },
             };
           });
-          showToast('تم استلام هدية اليوم (+320 طاقة و +3 ★)!');
+          triggerTelegramHaptic('success');
+          showToast(
+            `تم استلام ${dayConfig.titleAr} (+${dayConfig.reward.corn ?? 0}⚡ و +${dayConfig.reward.stars ?? 0}★)!`
+          );
         }}
         onUnlockBattlePassPremium={() => {
-          if (state.stars < 60 || state.battlePass.premiumUnlocked) return;
+          const cost = ACTIVE_SEASON.premiumFallbackStarsCost;
+          if (state.battlePass.premiumUnlocked) return;
+          if (state.stars < cost) {
+            soundFX.playError();
+            triggerTelegramHaptic('error');
+            showToast(`تحتاج ${cost} ★ لتفعيل المسار الملكي!`);
+            return;
+          }
           setState((p) => ({
             ...p,
-            stars: p.stars - 60,
-            treasury: withBurnedStars(p.treasury, 60),
+            stars: p.stars - cost,
+            treasury: withBurnedStars(p.treasury, cost),
             battlePass: { ...p.battlePass, premiumUnlocked: true },
           }));
-          showToast('👑 تم تفعيل المسار الملكي لتذكرة الموسم!');
+          triggerTelegramHaptic('success');
+          showToast(`👑 تم تفعيل المسار الملكي لـ ${ACTIVE_SEASON.nameAr}!`);
         }}
         onClaimBattlePassReward={handleClaimBattlePassReward}
         onJoinPack={() => {
@@ -2313,7 +2817,12 @@ export default function App() {
           showToast('انضممت إلى عش التنانين (+240 طاقة و +3 ★)!');
         }}
         onContributePack={(amount) => {
-          if (state.corn < amount) return;
+          if (state.corn < amount) {
+            soundFX.playError();
+            triggerTelegramHaptic('error');
+            showToast(`تحتاج ${amount.toLocaleString()} طاقة للتبرع للسرب!`);
+            return;
+          }
           setState((p) => {
             let nextTreasury = withBurnedEnergy(p.treasury, amount);
             nextTreasury = withEarnedStars(nextTreasury, 2);
@@ -2408,12 +2917,6 @@ export default function App() {
         onBackToTitle={() => {
           setModal(null);
           setScreen('TITLE');
-        }}
-        onResetGame={() => {
-          const fresh = createInitialGameState();
-          setState(fresh);
-          setModal(null);
-          showToast('تم بدء رحلة جديدة في عالم التنانين!');
         }}
       />
     </div>

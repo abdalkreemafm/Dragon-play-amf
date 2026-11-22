@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { GameState } from '../../types/game';
+import { ACTIVE_SEASON, TREASURE_RACE_STEPS } from '../../data/gameData';
 import { GodIllustration, GoldIcon, ItemIcon, StarIcon } from '../art/DuckArt';
 import { TempleAltarBackdrop } from '../art/SceneBackdrops';
 import { soundFX } from '../../utils/sound';
@@ -9,18 +10,11 @@ interface GodsTabProps {
   state: GameState;
   initialSubTab?: 'TREASURES' | 'TASKS' | 'GODS';
   onActivateGod: (godId: string, payWith: 'gold' | 'stars') => void;
-  onClaimTreasureStep: (stepThreshold: number, cornReward: number, starReward: number) => void;
+  onClaimTreasureStep: (threshold: number, stepNumber: number) => void;
   onOpenExchangeGold: () => void;
 }
 
-const RACE_STEPS = [
-  { threshold: 20, label: '20+ للجميع', rewardText: '250', corn: 250, stars: 3 },
-  { threshold: 50, label: '50+ للجميع', rewardText: '450', corn: 450, stars: 4 },
-  { threshold: 100, label: '100+ للجميع', rewardText: '700', corn: 700, stars: 6 },
-  { threshold: 280, label: '280+ نقطة كنز', rewardText: '1,000', corn: 1000, stars: 8 },
-  { threshold: 550, label: '550+ نقطة كنز', rewardText: '1,300', corn: 1300, stars: 9 },
-  { threshold: 1100, label: '1100+ نقطة كنز · الصدارة', rewardText: '1,900', corn: 1900, stars: 12 },
-];
+const TREASURE_THRESHOLDS = [40, 100, 220, 420];
 
 export const GodsTab: React.FC<GodsTabProps> = ({
   state,
@@ -72,7 +66,7 @@ export const GodsTab: React.FC<GodsTabProps> = ({
       {/* Season & Dragon Gold Counter */}
       <div className="flex items-center justify-between text-xs text-slate-300 mb-4 px-1">
         <span>
-          الموسم الأول · <strong className="text-emerald-300 font-mono-num">{treasurePoints} نقطة كنز</strong>
+          {ACTIVE_SEASON.nameAr} · <strong className="text-emerald-300 font-mono-num">{treasurePoints} نقطة كنز</strong>
         </span>
         <div className="flex items-center gap-1.5 font-mono-num font-bold text-amber-300">
           <GoldIcon className="w-4 h-4" />
@@ -130,12 +124,13 @@ export const GodsTab: React.FC<GodsTabProps> = ({
 
           {/* Winding Path Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {RACE_STEPS.map((step, i) => {
-              const reached = treasurePoints >= step.threshold;
-              const claimed = state.claimedTreasureSteps.includes(step.threshold);
+            {TREASURE_RACE_STEPS.map((step, i) => {
+              const threshold = TREASURE_THRESHOLDS[i] ?? step.step * 100;
+              const reached = treasurePoints >= threshold;
+              const claimed = state.claimedTreasureSteps.includes(threshold);
               return (
                 <div
-                  key={step.threshold}
+                  key={step.step}
                   className={`rounded-2xl p-3.5 border flex items-center justify-between gap-3 transition-all ${
                     claimed
                       ? 'bg-emerald-500/10 border-emerald-500/40'
@@ -145,10 +140,12 @@ export const GodsTab: React.FC<GodsTabProps> = ({
                   }`}
                 >
                   <div>
-                    <div className="text-[11px] font-bold text-slate-400">المرحلة {i + 1}</div>
-                    <div className="font-display text-sm font-black text-white">{step.label}</div>
+                    <div className="text-[11px] font-bold text-slate-400 font-mono-num">
+                      المرحلة {step.step} · {threshold}+ نقطة
+                    </div>
+                    <div className="font-display text-sm font-black text-white">{step.titleAr}</div>
                     <div className="text-xs text-emerald-400 font-mono-num font-bold mt-0.5">
-                      +{step.corn.toLocaleString()} طاقة · +{step.stars} ★
+                      {step.rewardLabelAr}
                     </div>
                   </div>
                   {claimed ? (
@@ -161,15 +158,15 @@ export const GodsTab: React.FC<GodsTabProps> = ({
                       disabled={!reached}
                       onClick={() => {
                         soundFX.playClaim();
-                        onClaimTreasureStep(step.threshold, step.corn, step.stars);
+                        onClaimTreasureStep(threshold, step.step);
                       }}
-                      className={`px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all ${
+                      className={`min-h-[44px] px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all ${
                         reached
                           ? 'bg-amber-400 text-slate-950 hover:brightness-105 cursor-pointer'
                           : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                       }`}
                     >
-                      {reached ? 'استلام' : `${step.threshold}+`}
+                      {reached ? 'استلام' : `${threshold}+`}
                     </button>
                   )}
                 </div>

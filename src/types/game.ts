@@ -33,6 +33,7 @@ export interface DuckSkillMeta {
 
 export type DuckGearId = 'none' | 'crown' | 'helmet' | 'shades' | 'wings';
 export type DuckAuraId = 'auto' | 'gold' | 'flame' | 'emerald';
+export type DragonSize = 'NORMAL' | 'XL' | 'XXL';
 
 export interface Duck {
   id: string;
@@ -41,21 +42,28 @@ export interface Duck {
   rarity: Rarity;
   level: number;
   maxLevel: number;
-  customLevel: number; // 0..10 (Star customization level; >= 1 at LVL 5 unlocks DMD generation!)
-  dmd: number; // Lifetime DMD earned by this dragon
-  dmdStored: number; // Accumulated unclaimed DMD in slot buffer (capped at maxCapHours)
-  slotIndex: number | null; // Assigned slot 0..7 (null = reserve roster)
+  customLevel: number; // 0..10 (10★ to 100★ instant customization steps; ★10 transfers dragon to DMD exchange vault)
+  dmd: number; // DMD value unlocked on this dragon toward its tier exchange price
+  dmdStored: number; // Legacy field kept 0 (DMD is wallet-only, never mined)
+  slotIndex: number | null; // Assigned chronologically 0..7 (null = reserve roster)
   feedCost: number;
   feedsProgress: number;
   feedsRequired: number;
-  staked: boolean; // Active DMD generator state (auto-enabled once LVL 5 + customLevel >= 1)
-  stakeRatePerHour: number;
+  feedClicksSinceReset?: number; // Clicks within current 8h reset window
+  costResetEndsAt?: number | null; // Epoch ms when 8h feed cost resets back to level base
+  levelFeedsCompleted?: boolean; // True when current level clicks reached requiredClicks
+  breedingEndsAt?: number | null; // Epoch ms when 24h breeding gate finishes -> level + 1
+  breedingNextLevel?: number | null;
+  lastBreedingEggAt?: number | null; // Tracks 15-min breeding egg generation intervals
+  staked: boolean; // Legacy field kept false (no DMD mining)
+  stakeRatePerHour: number; // Legacy field kept 0
   stakedItemId?: string;
   xl?: boolean;
+  sizeTier?: DragonSize; // NORMAL | XL | XXL
   gear?: DuckGearId;
   aura?: DuckAuraId;
   skillLevel: number;
-  trainingLevel?: number; // Continuous post-LVL5 Energy combat training rank (0+)
+  trainingLevel?: number; // Continuous Energy combat training rank (0+)
   powerRating: number;
   unlockedAt: number;
 }
@@ -171,6 +179,7 @@ export interface MarketListing {
   isUserBid: boolean;
   rivalSniped?: boolean;
   soldStatus?: 'ACTIVE' | 'SOLD_OTHER' | 'SOLD_YOU';
+  soldAt?: number;
 }
 
 export interface PackMessage {
@@ -256,13 +265,150 @@ export interface GameStats {
   hammerBoosters: number;
 }
 
+export interface RewardBundle {
+  corn?: number;
+  stars?: number;
+  duckGold?: number;
+  medals?: number;
+  hearts?: number;
+  keys?: number;
+  honorLetters?: number;
+  coinsOfChange?: number;
+  battlePassXp?: number;
+  autoMergeBoosters?: number;
+  hammerBoosters?: number;
+  eggs?: EggItemType[];
+  tournamentScore?: number;
+}
+
+export interface EventModifiers {
+  starBonusMult: number;
+  arenaEnergyMult: number;
+  templeEnergyMult: number;
+  badgeText: string;
+}
+
+export interface LiveEventConfig {
+  id: string;
+  title: string;
+  desc: string;
+  starBonusMult: number;
+  arenaEnergyMult: number;
+  templeEnergyMult: number;
+  badgeText: string;
+}
+
+export interface SeasonConfig {
+  id: string;
+  seasonNumber: number;
+  nameAr: string;
+  passTitleAr: string;
+  passLevels: number;
+  premiumPriceUsd: number;
+  premiumFallbackStarsCost: number;
+  bonusDescriptionAr: string;
+}
+
+export interface StarEvolutionTierMeta {
+  minStar: number;
+  nameAr: string;
+  subtitleAr: string;
+  auraColorHex: string;
+  badgeClass: string;
+}
+
+export interface TournamentMilestoneConfig {
+  score: number;
+  labelAr: string;
+  reward: RewardBundle;
+}
+
+export interface TreasureStepConfig {
+  step: number;
+  titleAr: string;
+  rewardLabelAr: string;
+  reward: RewardBundle;
+}
+
+export interface HonorPackConfig {
+  id: string;
+  titleAr: string;
+  costLetters: number;
+  rewardDescAr: string;
+  reward: RewardBundle;
+}
+
+export interface HeartMilestoneConfig {
+  targetHearts: number;
+  rewardLabelAr: string;
+  reward: RewardBundle;
+}
+
+export interface AchievementRegistryItem {
+  id: string;
+  titleAr: string;
+  descAr: string;
+  metric: 'feeds' | 'merges' | 'errands' | 'tasks' | 'wins' | 'ducks' | 'maxCustom';
+  target: number;
+  rewardLabelAr: string;
+  reward: RewardBundle;
+}
+
+export interface SocialTaskConfig {
+  id: string;
+  titleAr: string;
+  rewardDescAr: string;
+  url?: string;
+  reward: RewardBundle;
+}
+
+export interface PromoCodeReward {
+  code: string;
+  labelAr: string;
+  reward: RewardBundle;
+}
+
+export interface WheelRewardSegment {
+  id: string;
+  label: string;
+  shortLabel: string;
+  color: string;
+  reward: RewardBundle;
+}
+
+export interface DailyPassRewardConfig {
+  day: number;
+  titleAr: string;
+  primaryItem: EggItemType;
+  primaryLabelAr: string;
+  secondaryItem: EggItemType;
+  secondaryLabelAr: string;
+  reward: RewardBundle;
+}
+
+export interface RivalProfile {
+  id: string;
+  name: string;
+  skin: DuckSkinId;
+  rarity: Rarity;
+  basePower: number;
+  baseHp: number;
+  baseAtk: number;
+  cornReward: number;
+  starReward: number;
+  medalReward: number;
+}
+
 export interface GameState {
+  schemaVersion?: number;
   username: string;
   corn: number; // Energy / Feeding Grains (الطاقة)
   stars: number; // Progression & Star Customization currency (النجوم)
   duckGold: number; // Dragon Relics / Gold (ذهب التنانين)
-  dmdTotal: number; // Collected future DMD balance (read-only earned balance)
+  dmdTotal: number; // Wallet DMD credited from ★1-10 customization, awaiting official exchange event
+  breedingEggs?: number; // Eggs generated every 15m during 24h breeding gates, used to upgrade XL & XXL dragons
   ducks: Duck[];
+  customizedVault?: Duck[]; // Dragons that reached ★10 customization & await official DMD token swap
   activeDuckIndex: number;
   unlockedSlots: number; // 3..8 open dragon slots
   treasury: TreasuryState;

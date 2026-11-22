@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { Check, Flame, Hammer, Lock, Sparkles, Trophy, X, Zap } from 'lucide-react';
 import { EggItemType, GameState, GodOrder } from '../../types/game';
-import { EGG_ITEM_META, GOD_PATRONS } from '../../data/gameData';
-import { ECONOMY_LIMITS } from '../../utils/economyEngine';
+import { EGG_ITEM_META, GOD_PATRONS, TOURNAMENT_MILESTONES, WEEKEND_EVENTS } from '../../data/gameData';
+import { ECONOMY_LIMITS, resolveEventModifiers } from '../../utils/economyEngine';
 import { CornIcon, GodIllustration, ItemIcon } from '../art/DuckArt';
 import { TempleAltarBackdrop } from '../art/SceneBackdrops';
 import { soundFX } from '../../utils/sound';
@@ -129,7 +129,13 @@ export const EggsTab: React.FC<EggsTabProps> = ({
     }
   };
 
-  const nextMilestone = [40, 100, 250, 400].find((m) => state.tournament.score < m) ?? 400;
+  const eventMods = resolveEventModifiers(
+    WEEKEND_EVENTS[state.weekendEventIndex % WEEKEND_EVENTS.length]
+  );
+  const nextMilestone =
+    TOURNAMENT_MILESTONES.find((m) => state.tournament.score < m.score)?.score ??
+    TOURNAMENT_MILESTONES[TOURNAMENT_MILESTONES.length - 1]?.score ??
+    400;
 
   return (
     <div className="h-full flex flex-col max-w-4xl mx-auto px-2 sm:px-5 py-2 overflow-y-auto select-none">
@@ -189,6 +195,11 @@ export const EggsTab: React.FC<EggsTabProps> = ({
                 إكسير التفقيس +20%
               </div>
             )}
+            {eventMods.templeEnergyMult > 1 && (
+              <div className="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] font-black text-center font-mono-num">
+                بركة المعبد +{Math.round((eventMods.templeEnergyMult - 1) * 100)}%
+              </div>
+            )}
           </div>
 
           {/* 3 Active Duck Gods */}
@@ -234,7 +245,7 @@ export const EggsTab: React.FC<EggsTabProps> = ({
                         onDeliverToGod(order.id, matchingIdx);
                         setSelectedCell(null);
                       }}
-                      className="mt-1 w-full py-1 rounded-lg bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-black text-[10px] tracking-wide hover:brightness-105 active:scale-95 cursor-pointer"
+                      className="mt-1 w-full min-h-[36px] py-1.5 rounded-lg bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 font-black text-[10px] tracking-wide hover:brightness-105 active:scale-95 cursor-pointer"
                     >
                       تسليم
                     </button>
@@ -349,9 +360,7 @@ export const EggsTab: React.FC<EggsTabProps> = ({
                     if (suppressNextClickRef.current) return;
                     handleCellClick(cell.index);
                   }}
-                  className={`relative aspect-square rounded-lg sm:rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                    !cell.locked && cell.item && cell.item !== 'chest' ? 'touch-none' : ''
-                  } ${
+                  className={`relative aspect-square rounded-lg sm:rounded-xl flex items-center justify-center transition-all cursor-pointer touch-pan-y ${
                     cell.locked
                       ? 'stone-socket-locked border border-slate-800/40 text-slate-600 hover:border-amber-500/40'
                       : isSelected
@@ -404,7 +413,7 @@ export const EggsTab: React.FC<EggsTabProps> = ({
           </div>
           <button
             onClick={() => setInspectItem(null)}
-            className="p-1 text-slate-400 hover:text-white cursor-pointer shrink-0"
+            className="w-10 h-10 -m-1 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer shrink-0"
             aria-label="إغلاق الوصف"
           >
             <X className="w-4 h-4" />
@@ -439,7 +448,7 @@ export const EggsTab: React.FC<EggsTabProps> = ({
             }}
             className={`min-h-[44px] py-2 px-3 rounded-xl border text-[11px] font-black flex items-center justify-center gap-1.5 cursor-pointer ${
               hammerArmed
-                ? 'bg-rose-500 text-white border-rose-400 animate-pulse'
+                ? 'bg-rose-500 text-white border-rose-300 ring-2 ring-rose-300/80'
                 : 'bg-rose-500/15 border-rose-500/40 text-rose-200 hover:bg-rose-500/25'
             }`}
           >
@@ -507,7 +516,8 @@ export const EggsTab: React.FC<EggsTabProps> = ({
           <div className="w-full max-w-sm bg-[#181b24] border border-amber-400/40 rounded-3xl p-6 text-center shadow-2xl relative">
             <button
               onClick={() => setChestModalCell(null)}
-              className="absolute top-4 left-4 text-slate-400 hover:text-white cursor-pointer"
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>

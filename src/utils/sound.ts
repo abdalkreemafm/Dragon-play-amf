@@ -7,6 +7,21 @@ class SoundEngine {
   private lastRoarAt = 0;
   public muted = false;
 
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const unlockHandler = () => {
+        this.unlock();
+      };
+      window.addEventListener('pointerdown', unlockHandler, { passive: true, once: true });
+      window.addEventListener('touchstart', unlockHandler, { passive: true, once: true });
+      window.addEventListener('keydown', unlockHandler, { passive: true, once: true });
+    }
+  }
+
+  public unlock() {
+    this.ensureContext();
+  }
+
   private ensureContext(): AudioContext | null {
     if (this.muted || typeof window === 'undefined') return null;
     if (!this.ctx) {

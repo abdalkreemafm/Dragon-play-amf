@@ -7,9 +7,9 @@ import {
   Hammer,
   Lock,
   LogOut,
-  RotateCcw,
   Send,
   Shield,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   Volume2,
@@ -18,7 +18,13 @@ import {
   X,
 } from 'lucide-react';
 import { GameState, MainTab, SquadTalentKey } from '../../types/game';
-import { BATTLE_PASS_LEVELS, formatTimer } from '../../data/gameData';
+import {
+  ACTIVE_SEASON,
+  BATTLE_PASS_LEVELS,
+  DAILY_PASS_REWARDS,
+  TOURNAMENT_MILESTONES,
+  formatTimer,
+} from '../../data/gameData';
 import {
   CornIcon,
   GodIllustration,
@@ -58,7 +64,7 @@ interface GameModalsProps {
   state: GameState;
   onClose: () => void;
   onSwitchTab: (tab: MainTab) => void;
-  onClaimTournamentMilestone: (milestone: number, rewardType: 'eggs' | 'medals' | 'gold', amount: number) => void;
+  onClaimTournamentMilestone: (scoreThreshold: number) => void;
   onBuyTraderDeal: () => void;
   onClaimDailyTask: (taskId: string) => void;
   onClaimDailyLevelReward: (rewardId: number, corn: number, eggs: number) => void;
@@ -74,15 +80,7 @@ interface GameModalsProps {
   onSwapWallet: (direction: 'CORN_TO_STARS' | 'CORN_TO_GOLD') => void;
   onToggleMute: () => void;
   onBackToTitle: () => void;
-  onResetGame: () => void;
 }
-
-const TOURNAMENT_MILESTONES = [
-  { threshold: 40, label: '3 بيضات', type: 'eggs' as const, amount: 3 },
-  { threshold: 100, label: '18 ميدالية', type: 'medals' as const, amount: 18 },
-  { threshold: 250, label: '8 ذهب', type: 'gold' as const, amount: 8 },
-  { threshold: 400, label: '32 ميدالية', type: 'medals' as const, amount: 32 },
-];
 
 export const GameModals: React.FC<GameModalsProps> = ({
   modal,
@@ -106,7 +104,6 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onSwapWallet,
   onToggleMute,
   onBackToTitle,
-  onResetGame,
 }) => {
   const [packMsgInput, setPackMsgInput] = useState('');
   const [packSubTab, setPackSubTab] = useState<'CHAT' | 'TALENTS' | 'FORGE'>(packInitialSubTab);
@@ -131,7 +128,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
   const talents = state.pack.talents ?? { fury: 0, carapace: 0, incubation: 0, prestige: 0 };
   const buffs = state.activeBuffs ?? { duelFuryUntil: 0, critEdgeUntil: 0, eggSurgeUntil: 0 };
   const nowTs = Date.now();
-  const currentPassLevel = Math.min(15, Math.floor(state.battlePass.xp / 100) + 1);
+  const currentPassLevel = Math.min(ACTIVE_SEASON.passLevels, Math.floor(state.battlePass.xp / 100) + 1);
   const currentPassProgress = state.battlePass.xp % 100;
 
   return (
@@ -145,7 +142,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {modal === 'TOURNAMENT' && (
         <div className="w-full max-w-md bg-[#161923] border border-amber-400/40 rounded-3xl overflow-hidden shadow-2xl max-h-[88vh] flex flex-col">
           <div className="relative bg-gradient-to-b from-purple-900/60 to-[#161923] p-5 text-center border-b border-slate-800">
-            <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+            <button
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center justify-center gap-2 mb-2">
@@ -163,11 +164,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
           <div className="p-4 overflow-y-auto space-y-4">
             <div className="grid grid-cols-4 gap-2">
               {TOURNAMENT_MILESTONES.map((m) => {
-                const reached = state.tournament.score >= m.threshold;
-                const claimed = state.tournament.claimedMilestones.includes(m.threshold);
+                const reached = state.tournament.score >= m.score;
+                const claimed = state.tournament.claimedMilestones.includes(m.score);
                 return (
                   <div
-                    key={m.threshold}
+                    key={m.score}
                     className={`rounded-2xl p-2 border text-center flex flex-col justify-between ${
                       claimed
                         ? 'bg-slate-900/60 border-slate-800 opacity-70'
@@ -176,13 +177,13 @@ export const GameModals: React.FC<GameModalsProps> = ({
                           : 'bg-slate-900/90 border-slate-800'
                     }`}
                   >
-                    <div className="text-[10px] font-bold text-slate-200">{m.label}</div>
-                    <div className="font-mono-num text-[11px] font-black text-emerald-400 my-1">{m.threshold} 🏆</div>
+                    <div className="text-[10px] font-bold text-slate-200">{m.labelAr}</div>
+                    <div className="font-mono-num text-[11px] font-black text-emerald-400 my-1">{m.score} 🏆</div>
                     <button
                       disabled={!reached || claimed}
                       onClick={() => {
                         soundFX.playChestOpen();
-                        onClaimTournamentMilestone(m.threshold, m.type, m.amount);
+                        onClaimTournamentMilestone(m.score);
                       }}
                       className={`w-full py-1 rounded-lg text-[10px] font-black ${
                         claimed
@@ -241,7 +242,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {modal === 'TRADER' && (
         <div className="w-full max-w-md bg-[#161923] border border-amber-400/40 rounded-3xl overflow-hidden shadow-2xl">
           <div className="relative bg-gradient-to-b from-indigo-950 via-purple-950/60 to-[#161923] p-5 text-center border-b border-slate-800">
-            <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+            <button
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
             <h3 className="font-display text-2xl font-black text-white">التاجر المتنقل</h3>
@@ -252,15 +257,17 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
 
           <div className="p-5 space-y-4 text-center">
-            <div className="text-xs font-bold text-slate-400 font-mono-num">صفقة {state.stats.traderDeals}/100</div>
+            <div className="text-xs font-bold text-slate-400 font-mono-num">
+              الصفقات المنجزة: {state.stats.traderDeals}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 flex flex-col items-center">
                 <ItemIcon item="cornucopia" className="w-10 h-10" />
-                <span className="text-[11px] font-bold text-slate-200 mt-1">سلة الخيرات</span>
+                <span className="text-[11px] font-bold text-slate-200 mt-1">قرن الوفرة [3]</span>
               </div>
               <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 flex flex-col items-center">
                 <ItemIcon item="chalice" className="w-10 h-10" />
-                <span className="text-[11px] font-bold text-slate-200 mt-1">الكأس الذهبي</span>
+                <span className="text-[11px] font-bold text-slate-200 mt-1">الكأس الإمبراطوري [2]</span>
               </div>
               <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 flex flex-col items-center">
                 <ItemIcon item="egg_3" className="w-10 h-10" />
@@ -298,7 +305,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {modal === 'DAILY_TASKS' && (
         <div className="w-full max-w-md bg-[#161923] border border-sky-500/30 rounded-3xl overflow-hidden shadow-2xl max-h-[88vh] flex flex-col">
           <div className="p-5 bg-gradient-to-b from-sky-900/30 to-[#161923] border-b border-slate-800 text-center relative">
-            <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+            <button
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
             <h3 className="font-display text-xl font-black text-white">المهام اليومية</h3>
@@ -415,50 +426,86 @@ export const GameModals: React.FC<GameModalsProps> = ({
       )}
 
       {/* 4. DAILY PASS */}
-      {modal === 'DAILY_PASS' && (
-        <div className="w-full max-w-md bg-[#161923] border border-emerald-500/40 rounded-3xl p-5 space-y-4 relative">
-          <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
-          <div className="text-center">
-            <Gift className="w-10 h-10 text-emerald-400 mx-auto mb-1" />
-            <h3 className="font-display text-xl font-black text-white">تذكرة الهدايا اليومية</h3>
-            <p className="text-xs text-slate-400">مكافآت 7 أيام متتالية + معززات دمج</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 text-center">
-              <ItemIcon item="cornucopia" className="w-12 h-12 mx-auto" />
-              <div className="text-xs font-bold text-white mt-1">سلة الخيرات + معززات</div>
+      {modal === 'DAILY_PASS' && (() => {
+        const currentDay = Math.min(7, Math.max(1, state.stats.dailyPassDay || 1));
+        const dayReward = DAILY_PASS_REWARDS[currentDay - 1] ?? DAILY_PASS_REWARDS[0];
+        return (
+          <div className="w-full max-w-md bg-[#161923] border border-emerald-500/40 rounded-3xl p-5 space-y-4 relative">
+            <button
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="text-center">
+              <Gift className="w-10 h-10 text-emerald-400 mx-auto mb-1" />
+              <h3 className="font-display text-xl font-black text-white">تذكرة الهدايا اليومية</h3>
+              <p className="text-xs text-emerald-300 font-bold mt-0.5">{dayReward.titleAr}</p>
             </div>
-            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 text-center">
-              <ItemIcon item="egg_4" className="w-12 h-12 mx-auto" />
-              <div className="text-xs font-bold text-white mt-1">320 طاقة + 3 ★</div>
+            <div className="grid grid-cols-7 gap-1 font-mono-num">
+              {DAILY_PASS_REWARDS.map((d) => {
+                const isToday = d.day === currentDay;
+                const isPast = d.day < currentDay || (isToday && state.stats.dailyPassClaimedToday);
+                return (
+                  <div
+                    key={d.day}
+                    className={`rounded-xl py-1.5 text-center border text-[10px] font-black ${
+                      isToday
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                        : isPast
+                          ? 'bg-slate-900 border-emerald-500/30 text-emerald-400'
+                          : 'bg-slate-900/70 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div>ي{d.day}</div>
+                    <div className="text-[9px]">{isPast ? '✓' : `${d.reward.stars ?? 0}★`}</div>
+                  </div>
+                );
+              })}
             </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 text-center">
+                <ItemIcon item={dayReward.primaryItem} className="w-12 h-12 mx-auto" />
+                <div className="text-xs font-bold text-white mt-1">{dayReward.primaryLabelAr}</div>
+              </div>
+              <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 text-center">
+                <ItemIcon item={dayReward.secondaryItem} className="w-12 h-12 mx-auto" />
+                <div className="text-xs font-bold text-white mt-1">
+                  {dayReward.reward.corn ?? 0}⚡ + {dayReward.reward.stars ?? 0}★
+                </div>
+                <div className="text-[10px] text-slate-400">{dayReward.secondaryLabelAr}</div>
+              </div>
+            </div>
+            <button
+              disabled={state.stats.dailyPassClaimedToday}
+              onClick={() => {
+                soundFX.playChestOpen();
+                onClaimDailyPassDay();
+              }}
+              className={`w-full min-h-[46px] py-3.5 rounded-2xl font-black text-sm ${
+                state.stats.dailyPassClaimedToday
+                  ? 'bg-slate-800 text-slate-400'
+                  : 'bg-emerald-400 text-slate-950 hover:brightness-105 cursor-pointer'
+              }`}
+            >
+              {state.stats.dailyPassClaimedToday
+                ? `تم استلام مكافأة اليوم ${currentDay} ✓`
+                : `استلام حزمة اليوم ${currentDay}`}
+            </button>
           </div>
-          <button
-            disabled={state.stats.dailyPassClaimedToday}
-            onClick={() => {
-              soundFX.playChestOpen();
-              onClaimDailyPassDay();
-            }}
-            className={`w-full py-3.5 rounded-2xl font-black text-sm ${
-              state.stats.dailyPassClaimedToday
-                ? 'bg-slate-800 text-slate-400'
-                : 'bg-emerald-400 text-slate-950 hover:brightness-105 cursor-pointer'
-            }`}
-          >
-            {state.stats.dailyPassClaimedToday
-              ? `تم استلام مكافأة اليوم ${state.stats.dailyPassDay}`
-              : `استلام حزمة اليوم ${state.stats.dailyPassDay}`}
-          </button>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 5. 15-LEVEL DUCKER BATTLE PASS */}
       {modal === 'DUCKER_PASS' && (
         <div className="w-full max-w-lg bg-[#161923] border border-amber-400/40 rounded-3xl overflow-hidden shadow-2xl max-h-[88vh] flex flex-col">
           <div className="p-4 bg-gradient-to-b from-amber-500/20 to-[#161923] border-b border-slate-800 relative">
-            <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+            <button
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3">
@@ -466,9 +513,9 @@ export const GameModals: React.FC<GameModalsProps> = ({
                 <Crown className="w-7 h-7 text-amber-400" />
               </div>
               <div className="flex-1">
-                <h3 className="font-display text-lg font-black text-white">تذكرة الموسم · الموسم 1</h3>
+                <h3 className="font-display text-lg font-black text-white">{ACTIVE_SEASON.passTitleAr}</h3>
                 <div className="flex items-center gap-2 text-xs text-amber-300 font-mono-num">
-                  <span>المستوى {currentPassLevel} / 15</span>
+                  <span>المستوى {currentPassLevel} / {ACTIVE_SEASON.passLevels}</span>
                   <span>·</span>
                   <span>{currentPassProgress}/100 XP</span>
                 </div>
@@ -480,21 +527,31 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
             {!state.battlePass.premiumUnlocked && (
               <button
-                disabled={state.stars < 60}
+                disabled={state.stars < ACTIVE_SEASON.premiumFallbackStarsCost}
                 onClick={() => {
                   soundFX.playChestOpen();
                   onUnlockBattlePassPremium();
                 }}
-                className={`mt-3 w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 ${
-                  state.stars >= 60
+                className={`mt-3 w-full min-h-[44px] py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 ${
+                  state.stars >= ACTIVE_SEASON.premiumFallbackStarsCost
                     ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 cursor-pointer'
                     : 'bg-slate-800 text-slate-400 cursor-not-allowed'
                 }`}
               >
                 <Crown className="w-4 h-4" />
-                <span>تفعيل المسار الملكي PREMIUM (60 ★)</span>
+                <span>تفعيل الجوائز الملكية بنجوم تيليجرام ({ACTIVE_SEASON.premiumFallbackStarsCost} ★)</span>
               </button>
             )}
+          </div>
+
+          <div className="px-4 pt-3 pb-1 grid grid-cols-12 gap-2 text-center text-[10px] font-black border-b border-slate-800/80 bg-slate-950/60">
+            <div className="col-span-2 text-slate-400 py-1.5">المستوى</div>
+            <div className="col-span-5 text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg py-1.5">
+              الجوائز المجانية (للجميع)
+            </div>
+            <div className="col-span-5 text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-lg py-1.5">
+              الجوائز الملكية (نجوم تيليجرام)
+            </div>
           </div>
 
           <div className="p-4 overflow-y-auto space-y-2">
@@ -560,7 +617,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {/* 6. PACK / السرب ومواهب الترقية وصقل التعاويذ */}
       {modal === 'PACK' && (
         <div className="w-full max-w-lg bg-[#161923] border border-slate-700 rounded-3xl p-5 max-h-[88vh] overflow-y-auto space-y-4 relative">
-          <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+          <button
+            onClick={onClose}
+            aria-label="إغلاق"
+            className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
           <div className="text-center pt-1">
@@ -816,7 +877,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {/* 7. WALLET */}
       {modal === 'WALLET' && (
         <div className="w-full max-w-md bg-[#161923] border border-slate-700 rounded-3xl p-5 space-y-4 relative">
-          <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+          <button
+            onClick={onClose}
+            aria-label="إغلاق"
+            className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
           <h3 className="text-center text-lg font-black text-white">صندوق DMD والمحفظة</h3>
@@ -840,11 +905,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
           <div className="text-center py-2">
             <div className="font-mono-num text-3xl font-black text-white">
-              {walletTab === 'DMD' ? state.dmdTotal.toFixed(3) : state.duckGold.toLocaleString()}
+              {walletTab === 'DMD' ? state.dmdTotal.toFixed(2) : state.duckGold.toLocaleString()}
             </div>
-            <div className="text-xs text-slate-400 mt-1">
+            <div className="text-xs text-slate-400 mt-1 leading-relaxed">
               {walletTab === 'DMD'
-                ? 'إجمالي عملة DMD المكتسبة من تنانين LVL 5 + ★'
+                ? `عملة محفظة رقمية تُجمع عبر تخصيص التنانين (★1 ← ★10) وتُستبدل عند الإطلاق الرسمي · خزانة التبديل: ${state.customizedVault?.length ?? 0} تنين`
                 : 'رصيد ذهب التنانين لتفعيل البركات ومواهب السرب'}
             </div>
           </div>
@@ -966,7 +1031,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
       {/* 8. PAUSE / SETTINGS MODAL */}
       {modal === 'PAUSE' && (
         <div className="w-full max-w-sm bg-[#161923] border border-slate-700 rounded-3xl p-6 space-y-4 text-center relative">
-          <button onClick={onClose} className="absolute top-4 left-4 text-slate-300 hover:text-white cursor-pointer">
+          <button
+            onClick={onClose}
+            aria-label="إغلاق"
+            className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
           <Sparkles className="w-10 h-10 text-amber-400 mx-auto" />
@@ -986,13 +1055,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
               <LogOut className="w-4 h-4" />
               <span>العودة لشاشة البداية</span>
             </button>
-            <button
-              onClick={onResetGame}
-              className="w-full py-3 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-300 font-bold text-sm flex items-center justify-center gap-2 hover:bg-rose-500/25 cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>إعادة ضبط التقدم (حفظ جديد)</span>
-            </button>
+            <div className="w-full py-2.5 px-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span>بياناتك وتقدمك محفوظة تلقائياً ✓</span>
+            </div>
           </div>
         </div>
       )}

@@ -1,24 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Copy,
-  Gift,
   Heart,
-  Sparkles,
+  Share2,
   Ticket,
   Trophy,
-  Users,
   X,
 } from 'lucide-react';
-import { DuckSkinId, GameState, MainTab } from '../../types/game';
-import { SKIN_CATALOG } from '../../data/gameData';
-import { CornIcon, DuckIllustration, StarIcon } from '../art/DuckArt';
+import { AchievementRegistryItem, DuckSkinId, GameState, MainTab } from '../../types/game';
+import {
+  ACHIEVEMENTS_REGISTRY,
+  HEART_MILESTONES_REGISTRY,
+  HONOR_PACKS_REGISTRY,
+  PROMO_CODES_REGISTRY,
+  SKIN_CATALOG,
+  SOCIAL_TASKS_REGISTRY,
+  WHEEL_REWARDS_REGISTRY,
+} from '../../data/gameData';
+import { DuckIllustration } from '../art/DuckArt';
 import { soundFX } from '../../utils/sound';
 import {
   ECONOMY_LIMITS,
   getInstantSummonStarCost,
   getPlayerTier,
 } from '../../utils/economyEngine';
+import { openExternalLink, shareViaTelegram, triggerTelegramHaptic } from '../../utils/telegram';
 
 interface TasksTabProps {
   state: GameState;
@@ -26,25 +33,39 @@ interface TasksTabProps {
   onOpenDailyTasks: () => void;
   onOpenTrader: () => void;
   onFlipCoin: (packId: string) => DuckSkinId | null;
-  onClaimHonorPack: (packId: string, cost: number, cornReward: number, starReward: number) => void;
+  onClaimHonorPack: (packId: string) => void;
   onClaimWatchBonus: () => void;
-  onClaimAchievement: (id: string, rewardCorn: number, rewardStars: number) => void;
-  onClaimHeartMilestone: (threshold: number, rewardType: 'stars' | 'corn' | 'duck') => void;
-  onClaimSocial: (id: string, rewardCorn: number) => void;
+  onClaimAchievement: (id: string) => void;
+  onClaimHeartMilestone: (threshold: number) => void;
+  onClaimSocial: (id: string) => void;
   onRedeemPromo: (code: string) => { ok: boolean; message: string };
-  onSpinWheel: (mega: boolean) => { label: string; type: 'corn' | 'stars' | 'duck' | 'gold' | 'medals'; amount: number } | null;
+  onSpinWheel: (mega: boolean) => { segmentIndex: number; label: string; commitReward: () => void } | null;
   onInviteFriendSim: (premium: boolean) => void;
   onInstantMerge: (rarity: 'UNCOMMON' | 'RARE') => void;
 }
 
-const WHEEL_SEGMENTS = [
-  { label: '420 طاقة', color: '#16a34a', text: '#fff' },
-  { label: 'تنين RARE', color: '#2563eb', text: '#fff' },
-  { label: '5 نجوم ★', color: '#7c3aed', text: '#fff' },
-  { label: '45 ميدالية', color: '#0f172a', text: '#facc15' },
-  { label: 'تنين نادر', color: '#059669', text: '#fff' },
-  { label: '5 ذهب 💎', color: '#d97706', text: '#fff' },
-];
+function getAchievementProgress(metric: AchievementRegistryItem['metric'], state: GameState): number {
+  switch (metric) {
+    case 'feeds':
+      return state.stats.totalFeeds;
+    case 'merges':
+      return state.stats.totalMerges;
+    case 'errands':
+      return state.stats.totalErrands;
+    case 'tasks':
+      return state.stats.totalTasksClaimed;
+    case 'wins':
+      return state.league.wins;
+    case 'ducks':
+      return state.ducks.length + (state.customizedVault?.length ?? 0);
+    case 'maxCustom':
+      return Math.max(
+        0,
+        ...state.ducks.map((d) => d.customLevel ?? 0),
+        ...(state.customizedVault ?? []).map((d) => d.customLevel ?? 0)
+      );
+  }
+}
 
 export const TasksTab: React.FC<TasksTabProps> = ({
   state,
@@ -75,6 +96,21 @@ export const TasksTab: React.FC<TasksTabProps> = ({
   const [promoFeedback, setPromoFeedback] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
 
+  const wheelTickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wheelEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingWheelCommitRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (wheelTickTimerRef.current) clearInterval(wheelTickTimerRef.current);
+      if (wheelEndTimerRef.current) clearTimeout(wheelEndTimerRef.current);
+      if (pendingWheelCommitRef.current) {
+        pendingWheelCommitRef.current();
+        pendingWheelCommitRef.current = null;
+      }
+    };
+  }, []);
+
   const playerTier = getPlayerTier(state);
   const summonUncommonCost = getInstantSummonStarCost('UNCOMMON', playerTier);
   const summonRareCost = getInstantSummonStarCost('RARE', playerTier);
@@ -88,24 +124,43 @@ export const TasksTab: React.FC<TasksTabProps> = ({
     const outcome = onSpinWheel(mega);
     if (!outcome) {
       soundFX.playError();
+      triggerTelegramHaptic('error');
       setWheelResult(mega ? 'تحتاج 100 ★ نجمة!' : 'تحتاج 100 ميدالية!');
       return;
     }
+    triggerTelegramHaptic('medium');
     setWheelSpinning(true);
     setWheelResult(null);
-    const extraTurns = 5 * 360 + Math.floor(Math.random() * 360);
-    setWheelAngle((prev) => prev + extraTurns);
+    pendingWheelCommitRef.current = outcome.commitReward;
+
+    const segCount = WHEEL_REWARDS_REGISTRY.length;
+    const segAngle = 360 / segCount;
+    const currentMod = ((wheelAngle % 360) + 360) % 360;
+    const targetMod = (360 - (outcome.segmentIndex * segAngle + segAngle / 2)) % 360;
+    const delta = (targetMod - currentMod + 360) % 360;
+    setWheelAngle((prev) => prev + 5 * 360 + delta);
 
     let ticks = 0;
-    const tickTimer = setInterval(() => {
+    if (wheelTickTimerRef.current) clearInterval(wheelTickTimerRef.current);
+    if (wheelEndTimerRef.current) clearTimeout(wheelEndTimerRef.current);
+
+    wheelTickTimerRef.current = setInterval(() => {
       ticks++;
       soundFX.playWheelTick();
-      if (ticks > 12) clearInterval(tickTimer);
+      if (ticks > 12 && wheelTickTimerRef.current) {
+        clearInterval(wheelTickTimerRef.current);
+        wheelTickTimerRef.current = null;
+      }
     }, 110);
 
-    setTimeout(() => {
+    wheelEndTimerRef.current = setTimeout(() => {
+      if (pendingWheelCommitRef.current) {
+        pendingWheelCommitRef.current();
+        pendingWheelCommitRef.current = null;
+      }
       setWheelSpinning(false);
       soundFX.playChestOpen();
+      triggerTelegramHaptic('success');
       setWheelResult(`مبروك! ربحت ${outcome.label}`);
     }, 1600);
   };
@@ -225,29 +280,26 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               استبدل رسائل الشرف بحزم التنانين للحصول على طاقة إطعام ونجوم إضافية.
             </p>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'hr_free', label: 'حزمة مجانية', cost: 0, corn: 120, stars: 2 },
-                { id: 'hr_40', label: 'حزمة ذهبية', cost: 40, corn: 320, stars: 4 },
-                { id: 'hr_80', label: 'حزمة أسطورية', cost: 80, corn: 680, stars: 8 },
-              ].map((pack) => {
+              {HONOR_PACKS_REGISTRY.map((pack) => {
                 const claimed = state.claimedHonorPacks.includes(pack.id);
-                const canAfford = state.stats.honorLetters >= pack.cost;
+                const canAfford = state.stats.honorLetters >= pack.costLetters;
                 return (
                   <div
                     key={pack.id}
                     className="rounded-xl bg-slate-900/80 border border-slate-800 p-2.5 text-center flex flex-col justify-between"
                   >
-                    <div className="text-[11px] font-bold text-slate-200 mb-1">{pack.label}</div>
+                    <div className="text-[11px] font-bold text-slate-200 mb-1">{pack.titleAr}</div>
                     <div className="text-[10px] text-emerald-400 font-mono-num mb-2">
-                      +{pack.corn.toLocaleString()} ⚡ · +{pack.stars}★
+                      {pack.rewardDescAr}
                     </div>
                     <button
                       disabled={claimed || !canAfford}
                       onClick={() => {
                         soundFX.playClaim();
-                        onClaimHonorPack(pack.id, pack.cost, pack.corn, pack.stars);
+                        triggerTelegramHaptic('success');
+                        onClaimHonorPack(pack.id);
                       }}
-                      className={`w-full py-1.5 rounded-lg font-extrabold text-[11px] ${
+                      className={`w-full min-h-[40px] py-1.5 rounded-lg font-extrabold text-[11px] ${
                         claimed
                           ? 'bg-slate-800 text-slate-500'
                           : canAfford
@@ -255,7 +307,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                             : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                       }`}
                     >
-                      {claimed ? 'تم الاستلام' : pack.cost === 0 ? 'مجانا' : `${pack.cost} ✉️`}
+                      {claimed ? 'تم الاستلام' : pack.costLetters === 0 ? 'مجانا' : `${pack.costLetters} ✉️`}
                     </button>
                   </div>
                 );
@@ -321,25 +373,22 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 mb-3">
-              احصل على القلوب عند دمج بيض الحب وإطعام التنانين لفتح مكافآت وتنين نادر!
+              احصل على القلوب عند دمج بيض الحب وإطعام التنانين لفتح مكافآت وبيضة الياقوت [6]!
             </p>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { threshold: 2500, label: '+4 ★ نجوم', type: 'stars' as const },
-                { threshold: 5000, label: '+380 طاقة', type: 'corn' as const },
-                { threshold: 8000, label: 'تنين جديد 🐉', type: 'duck' as const },
-              ].map((m) => {
-                const reached = state.stats.hearts >= m.threshold;
-                const claimed = state.claimedHeartMilestones.includes(m.threshold);
+              {HEART_MILESTONES_REGISTRY.map((m) => {
+                const reached = state.stats.hearts >= m.targetHearts;
+                const claimed = state.claimedHeartMilestones.includes(m.targetHearts);
                 return (
                   <button
-                    key={m.threshold}
+                    key={m.targetHearts}
                     disabled={!reached || claimed}
                     onClick={() => {
                       soundFX.playChestOpen();
-                      onClaimHeartMilestone(m.threshold, m.type);
+                      triggerTelegramHaptic('success');
+                      onClaimHeartMilestone(m.targetHearts);
                     }}
-                    className={`rounded-xl p-2.5 border text-center transition-all ${
+                    className={`min-h-[56px] rounded-xl p-2.5 border text-center transition-all ${
                       claimed
                         ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                         : reached
@@ -347,9 +396,9 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                           : 'bg-slate-900/70 border-slate-800 text-slate-400 cursor-not-allowed'
                     }`}
                   >
-                    <div className="text-xs font-extrabold">{m.label}</div>
+                    <div className="text-xs font-extrabold">{m.rewardLabelAr}</div>
                     <div className="font-mono-num text-[10px] mt-1">
-                      {claimed ? '✓ تم الاستلام' : `${m.threshold.toLocaleString()} ❤️`}
+                      {claimed ? '✓ تم الاستلام' : `${m.targetHearts.toLocaleString()} ❤️`}
                     </div>
                   </button>
                 );
@@ -360,33 +409,9 @@ export const TasksTab: React.FC<TasksTabProps> = ({
           {/* GAME ACHIEVEMENTS */}
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4 space-y-2.5">
             <h3 className="text-sm font-black text-white">إنجازات عالم التنانين</h3>
-            {[
-              {
-                id: 'ach_eggs_10',
-                title: 'ادمج 10 بيضات تنين في ساحة البيض',
-                prog: state.stats.totalEggsHatched,
-                target: 10,
-                corn: 340,
-                stars: 0,
-              },
-              {
-                id: 'ach_merge_duck',
-                title: 'اكمل عملية دمج 4 تنانين بنجاح',
-                prog: state.stats.totalDucksMerged,
-                target: 1,
-                corn: 0,
-                stars: 8,
-              },
-              {
-                id: 'ach_stake_5',
-                title: 'فعّل توليد DMD لتنينين (LVL 5 + ★)',
-                prog: state.ducks.filter((d) => d.customLevel >= 1 && d.level >= 5).length,
-                target: 2,
-                corn: 0,
-                stars: 14,
-              },
-            ].map((ach) => {
-              const done = ach.prog >= ach.target;
+            {ACHIEVEMENTS_REGISTRY.map((ach) => {
+              const prog = getAchievementProgress(ach.metric, state);
+              const done = prog >= ach.target;
               const claimed = state.claimedAchievements.includes(ach.id);
               return (
                 <div
@@ -394,19 +419,20 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                   className="rounded-xl bg-slate-900/80 border border-slate-800 p-3 flex items-center justify-between gap-2"
                 >
                   <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-200 truncate">{ach.title}</div>
+                    <div className="text-xs font-bold text-slate-200 truncate">{ach.titleAr}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{ach.descAr}</div>
                     <div className="font-mono-num text-[11px] text-amber-300 mt-0.5">
-                      {Math.min(ach.prog, ach.target)}/{ach.target} ·{' '}
-                      {ach.corn > 0 ? `+${ach.corn.toLocaleString()} طاقة` : `+${ach.stars} ★`}
+                      {Math.min(prog, ach.target)}/{ach.target} · {ach.rewardLabelAr}
                     </div>
                   </div>
                   <button
                     disabled={!done || claimed}
                     onClick={() => {
                       soundFX.playClaim();
-                      onClaimAchievement(ach.id, ach.corn, ach.stars);
+                      triggerTelegramHaptic('success');
+                      onClaimAchievement(ach.id);
                     }}
-                    className={`px-3 py-1.5 rounded-xl font-extrabold text-xs shrink-0 ${
+                    className={`min-h-[40px] px-3 py-1.5 rounded-xl font-extrabold text-xs shrink-0 ${
                       claimed
                         ? 'bg-emerald-500/20 text-emerald-300'
                         : done
@@ -428,26 +454,38 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                 <h3 className="text-sm font-black text-white">استدعاء تنين فوري</h3>
                 <span className="font-mono-num text-[10px] text-amber-300 font-bold">الرتبة {playerTier}</span>
               </div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs gap-2">
                 <span className="text-emerald-400 font-bold">غير شائع مضمون</span>
                 <button
+                  disabled={state.stars < summonUncommonCost}
                   onClick={() => {
                     soundFX.playGodConfirm();
+                    triggerTelegramHaptic('medium');
                     onInstantMerge('UNCOMMON');
                   }}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold hover:bg-emerald-500/30 cursor-pointer font-mono-num"
+                  className={`min-h-[44px] px-3 py-1.5 rounded-lg border font-bold font-mono-num ${
+                    state.stars >= summonUncommonCost
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 cursor-pointer'
+                      : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
                   استدعاء ({summonUncommonCost} ★)
                 </button>
               </div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs gap-2">
                 <span className="text-sky-400 font-bold">نادر RARE مضمون</span>
                 <button
+                  disabled={state.stars < summonRareCost}
                   onClick={() => {
                     soundFX.playGodConfirm();
+                    triggerTelegramHaptic('medium');
                     onInstantMerge('RARE');
                   }}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-bold hover:bg-sky-500/30 cursor-pointer font-mono-num"
+                  className={`min-h-[44px] px-3 py-1.5 rounded-lg border font-bold font-mono-num ${
+                    state.stars >= summonRareCost
+                      ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 hover:bg-sky-500/30 cursor-pointer'
+                      : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
                   استدعاء ({summonRareCost} ★)
                 </button>
@@ -461,8 +499,8 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                   <span>أدخل رمز ترويجي (Promo Code)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  جرّب: <span className="font-mono-num text-amber-300">DRAGON2026</span> أو{' '}
-                  <span className="font-mono-num text-amber-300">GOLD100</span>
+                  جرّب: <span className="font-mono-num text-amber-300">{PROMO_CODES_REGISTRY[0]?.code ?? 'DRAGON'}</span> أو{' '}
+                  <span className="font-mono-num text-amber-300">{PROMO_CODES_REGISTRY[1]?.code ?? 'DMD2025'}</span>
                 </p>
               </div>
               <button
@@ -471,38 +509,36 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                   setPromoFeedback(null);
                   setPromoOpen(true);
                 }}
-                className="mt-3 w-full py-2.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs hover:brightness-105 cursor-pointer"
+                className="mt-3 w-full min-h-[44px] py-2.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs hover:brightness-105 cursor-pointer"
               >
                 إدخال الرمز
               </button>
             </div>
           </div>
 
-          {/* SOCIALS (02:57) */}
+          {/* SOCIALS */}
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4 space-y-2">
             <h3 className="text-sm font-black text-white">منصاتنا الاجتماعية</h3>
-            {[
-              { id: 'soc_tg', label: 'انضم إلى قناتنا الرسمية' },
-              { id: 'soc_x', label: 'تابعنا على X (تويتر)' },
-              { id: 'soc_dc', label: 'انضم إلى مجتمع اللاعبين' },
-            ].map((s) => {
+            {SOCIAL_TASKS_REGISTRY.map((s) => {
               const claimed = state.claimedSocials.includes(s.id);
               return (
                 <div
                   key={s.id}
-                  className="flex items-center justify-between py-2 border-b border-slate-800/80 last:border-0"
+                  className="flex items-center justify-between py-2 border-b border-slate-800/80 last:border-0 gap-2"
                 >
                   <div>
-                    <div className="text-xs font-bold text-slate-200">{s.label}</div>
-                    <div className="text-[11px] text-emerald-400 font-mono-num">+110 طاقة</div>
+                    <div className="text-xs font-bold text-slate-200">{s.titleAr}</div>
+                    <div className="text-[11px] text-emerald-400 font-mono-num">{s.rewardDescAr}</div>
                   </div>
                   <button
                     disabled={claimed}
                     onClick={() => {
+                      if (s.url) openExternalLink(s.url);
                       soundFX.playClaim();
-                      onClaimSocial(s.id, 110);
+                      triggerTelegramHaptic('success');
+                      onClaimSocial(s.id);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                    className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold shrink-0 ${
                       claimed
                         ? 'bg-slate-800 text-emerald-400'
                         : 'bg-sky-500 text-slate-950 hover:bg-sky-400 cursor-pointer'
@@ -528,7 +564,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              تحدَّ المروّضين في إطعام التنانين ودوّر <span className="text-amber-300 font-bold">عجلة التنانين</span> لربح تنانين نادرة وطاقة إضافية!
+              تحدَّ المروّضين في إطعام التنانين ودوّر <span className="text-amber-300 font-bold">عجلة التنانين</span> لربح طاقة وذهب التنانين وبيضة الزمرد [4]!
             </p>
 
             {/* Leaderboard */}
@@ -631,18 +667,34 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               </button>
             </div>
 
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(`https://dragondmd.app/ref/${state.username}`).catch(() => {});
-                soundFX.playTabSwitch();
-                setCopiedInvite(true);
-                setTimeout(() => setCopiedInvite(false), 1800);
-              }}
-              className="w-full py-3 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {copiedInvite ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedInvite ? 'تم نسخ رابط الدعوة!' : 'نسخ رابط الدعوة'}</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  const refUrl = `https://t.me/dragon_dmd_bot?start=${encodeURIComponent(state.username)}`;
+                  shareViaTelegram('انضم معي في DRAGON × DMD وابدأ تربية التنانين الأسطورية!', refUrl);
+                  soundFX.playTabSwitch();
+                  triggerTelegramHaptic('light');
+                }}
+                className="w-full min-h-[44px] py-3 rounded-xl bg-sky-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 cursor-pointer hover:bg-sky-400"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>مشاركة عبر تيليجرام</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(`https://t.me/dragon_dmd_bot?start=${encodeURIComponent(state.username)}`).catch(() => {});
+                  soundFX.playTabSwitch();
+                  triggerTelegramHaptic('light');
+                  setCopiedInvite(true);
+                  setTimeout(() => setCopiedInvite(false), 1800);
+                }}
+                className="w-full min-h-[44px] py-3 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {copiedInvite ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedInvite ? 'تم نسخ رابط الدعوة!' : 'نسخ رابط الدعوة'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -655,7 +707,8 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               <h3 className="font-display text-lg font-black text-white">بطاقات المظهر</h3>
               <button
                 onClick={() => setItemsDrawerOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                aria-label="إغلاق"
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -705,7 +758,8 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               </div>
               <button
                 onClick={() => setActiveFlipPackId(null)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                aria-label="إغلاق"
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -721,6 +775,8 @@ export const TasksTab: React.FC<TasksTabProps> = ({
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col items-center mb-4">
               <DuckIllustration
                 skin={lastFlippedSkin ?? activeFlipPack.possibleSkins[0]}
+                level={5}
+                showEvolutionEffects={true}
                 className="w-36 h-36"
               />
               <div className="mt-2 px-3 py-1 rounded-lg bg-slate-800 text-xs font-extrabold text-amber-300">
@@ -759,8 +815,12 @@ export const TasksTab: React.FC<TasksTabProps> = ({
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#181b24] border border-amber-400/40 rounded-3xl p-5 text-center relative">
             <button
+              disabled={wheelSpinning}
               onClick={() => setWheelOpen(false)}
-              className="absolute top-4 left-4 text-slate-400 hover:text-white cursor-pointer"
+              aria-label="إغلاق"
+              className={`absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center ${
+                wheelSpinning ? 'text-slate-600 cursor-not-allowed' : 'text-slate-400 hover:text-white cursor-pointer'
+              }`}
             >
               <X className="w-5 h-5" />
             </button>
@@ -778,10 +838,11 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                 style={{ transform: `rotate(${wheelAngle}deg)` }}
               >
                 <svg viewBox="0 0 200 200" className="w-full h-full">
-                  {WHEEL_SEGMENTS.map((seg, i) => {
-                    const startAngle = (i * 360) / WHEEL_SEGMENTS.length;
-                    const endAngle = ((i + 1) * 360) / WHEEL_SEGMENTS.length;
+                  {WHEEL_REWARDS_REGISTRY.map((seg, i) => {
+                    const startAngle = (i * 360) / WHEEL_REWARDS_REGISTRY.length;
+                    const endAngle = ((i + 1) * 360) / WHEEL_REWARDS_REGISTRY.length;
                     const midAngle = (startAngle + endAngle) / 2;
+                    const textRot = midAngle > 90 && midAngle < 270 ? midAngle + 180 : midAngle;
                     const rad = (deg: number) => ((deg - 90) * Math.PI) / 180;
                     const x1 = 100 + 100 * Math.cos(rad(startAngle));
                     const y1 = 100 + 100 * Math.sin(rad(startAngle));
@@ -790,7 +851,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                     const tx = 100 + 62 * Math.cos(rad(midAngle));
                     const ty = 100 + 62 * Math.sin(rad(midAngle));
                     return (
-                      <g key={seg.label}>
+                      <g key={seg.id}>
                         <path
                           d={`M100,100 L${x1},${y1} A100,100 0 0,1 ${x2},${y2} Z`}
                           fill={seg.color}
@@ -800,14 +861,14 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                         <text
                           x={tx}
                           y={ty}
-                          fill={seg.text}
+                          fill="#ffffff"
                           fontSize="9.5"
                           fontWeight="800"
                           textAnchor="middle"
                           dominantBaseline="middle"
-                          transform={`rotate(${midAngle}, ${tx}, ${ty})`}
+                          transform={`rotate(${textRot}, ${tx}, ${ty})`}
                         >
-                          {seg.label}
+                          {seg.shortLabel}
                         </text>
                       </g>
                     );
@@ -849,7 +910,11 @@ export const TasksTab: React.FC<TasksTabProps> = ({
           <div className="w-full max-w-sm bg-[#181b24] border border-slate-700 rounded-3xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-white">تفعيل رمز ترويجي</h3>
-              <button onClick={() => setPromoOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button
+                onClick={() => setPromoOpen(false)}
+                aria-label="إغلاق"
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -857,7 +922,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
               type="text"
               value={promoInput}
               onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-              placeholder="مثال: DRAGON2026"
+              placeholder={`مثال: ${PROMO_CODES_REGISTRY[0]?.code ?? 'DRAGON'}`}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono-num text-sm focus:outline-none focus:border-amber-400"
             />
             {promoFeedback && (

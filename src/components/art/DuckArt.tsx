@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
 import { DuckAuraId, DuckGearId, DuckSkinId, EggItemType, GodPatronId } from '../../types/game';
+import { clampCustomLevel, getStarTierMeta } from '../../utils/economyEngine';
 
 // Energy Grain / Crystal Icon (الطاقة / الحبوب الطاقية)
 export const CornIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => {
@@ -459,59 +460,22 @@ export const DragonIllustration: React.FC<{
   const uid = useId().replace(/:/g, '');
   const p = DRAGON_PALETTES[skin] ?? DRAGON_PALETTES.aqua;
   const lv = Math.max(1, Math.min(5, level ?? 3));
+  const cLv = clampCustomLevel(customLevel);
+  const starMeta = getStarTierMeta(cLv);
 
   const levelScale =
     level === undefined
       ? ''
       : lv === 1
-        ? 'scale-[0.88]'
+        ? 'scale-[0.86]'
         : lv === 2
-          ? 'scale-[0.93]'
+          ? 'scale-[0.91]'
           : lv === 3
-            ? 'scale-[0.97]'
+            ? 'scale-[0.96]'
             : lv === 4
-              ? 'scale-[1.02]'
+              ? 'scale-[1.01]'
               : 'scale-[1.06]';
 
-  const auraGradient =
-    aura === 'gold'
-      ? 'from-amber-400/50 via-yellow-300/25 to-transparent'
-      : aura === 'flame'
-        ? 'from-rose-500/50 via-orange-400/25 to-transparent'
-        : aura === 'emerald'
-          ? 'from-emerald-400/45 via-teal-300/20 to-transparent'
-          : mood === 'fever'
-            ? 'from-rose-500/45 via-amber-400/25 to-transparent'
-            : mood === 'battle'
-              ? 'from-rose-500/35 via-orange-400/15 to-transparent'
-              : lv >= 5 && customLevel >= 1
-                ? 'from-amber-400/45 via-yellow-300/25 to-transparent'
-                : lv >= 5
-                  ? 'from-amber-400/35 via-yellow-300/15 to-transparent'
-                  : lv === 4
-                    ? 'from-purple-400/35 via-fuchsia-400/15 to-transparent'
-                    : lv === 3
-                      ? 'from-sky-400/30 via-cyan-300/10 to-transparent'
-                      : lv === 2
-                        ? 'from-emerald-400/25 via-teal-300/10 to-transparent'
-                        : 'from-slate-400/10 to-transparent';
-
-  const pedestalClass =
-    aura === 'gold' || (staked && aura === 'auto')
-      ? 'border-amber-300/85 bg-amber-400/25 shadow-[0_0_22px_rgba(251,191,36,0.55)]'
-      : aura === 'flame'
-        ? 'border-rose-400/85 bg-rose-500/25 shadow-[0_0_20px_rgba(244,63,94,0.5)]'
-        : aura === 'emerald'
-          ? 'border-emerald-400/85 bg-emerald-500/25 shadow-[0_0_20px_rgba(52,211,153,0.5)]'
-          : lv >= 5
-            ? 'border-amber-300/80 bg-amber-400/25 shadow-[0_0_20px_rgba(251,191,36,0.55)]'
-            : lv === 4
-              ? 'border-purple-400/70 bg-purple-400/20 shadow-[0_0_14px_rgba(192,132,252,0.45)]'
-              : lv === 3
-                ? 'border-sky-400/65 bg-sky-400/15 shadow-[0_0_12px_rgba(56,189,248,0.4)]'
-                : 'border-emerald-400/55 bg-emerald-400/15';
-
-  const showCrown = gear === 'crown' || (gear === 'none' && showEvolutionEffects && lv >= 5);
   const effectiveAuraGlow =
     aura === 'gold'
       ? '#facc15'
@@ -519,7 +483,33 @@ export const DragonIllustration: React.FC<{
         ? '#fb923c'
         : aura === 'emerald'
           ? '#34d399'
-          : p.eyeGlow;
+          : cLv >= 5
+            ? starMeta.auraColorHex
+            : p.eyeGlow;
+
+  const pedestalClass =
+    aura === 'gold' || cLv >= 6
+      ? 'border-amber-300/85 bg-amber-400/20 shadow-[0_0_18px_rgba(251,191,36,0.45)]'
+      : aura === 'flame'
+        ? 'border-rose-400/85 bg-rose-500/20 shadow-[0_0_18px_rgba(244,63,94,0.45)]'
+        : aura === 'emerald'
+          ? 'border-emerald-400/85 bg-emerald-500/20 shadow-[0_0_18px_rgba(52,211,153,0.45)]'
+          : cLv >= 4
+            ? 'border-violet-400/80 bg-violet-400/20 shadow-[0_0_16px_rgba(167,139,250,0.45)]'
+            : lv >= 5
+              ? 'border-amber-300/80 bg-amber-400/20 shadow-[0_0_16px_rgba(251,191,36,0.45)]'
+              : lv === 4
+                ? 'border-purple-400/70 bg-purple-400/15 shadow-[0_0_12px_rgba(192,132,252,0.35)]'
+                : lv === 3
+                  ? 'border-sky-400/65 bg-sky-400/15'
+                  : 'border-emerald-400/55 bg-emerald-400/10';
+
+  const showCrown = gear === 'crown' || (gear === 'none' && showEvolutionEffects && lv >= 5);
+  const showPolished = cLv >= 2;
+  const showAncientRunes = cLv >= 4;
+  const showAstralOrbit = cLv >= 6;
+  const showCelestialFlares = cLv >= 8;
+  const showApexHalo = cLv >= 10;
 
   return (
     <div
@@ -531,128 +521,161 @@ export const DragonIllustration: React.FC<{
             : 'animate-duck-breathe'
       }`}
     >
-      {/* Evolution / Custom Aura Halo */}
-      {(showEvolutionEffects || aura !== 'auto' || staked || customLevel > 0) && (
+      {/* Crisp CSS Radial Aura (zero expensive WebView blur filter) */}
+      {(showEvolutionEffects || aura !== 'auto' || cLv > 0) && (
         <div
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-1 rounded-full bg-radial ${auraGradient} blur-md`}
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background: `radial-gradient(circle at 50% 48%, ${effectiveAuraGlow}${
+              cLv >= 6 ? '42' : cLv >= 2 ? '33' : '24'
+            } 0%, ${effectiveAuraGlow}0c 48%, transparent 74%)`,
+          }}
         />
       )}
 
-      {/* Evolution / Staked Pedestal Ring */}
-      {(showEvolutionEffects || staked || aura !== 'auto') && (lv >= 2 || staked || aura !== 'auto') && (
+      {/* Evolution / Aura Pedestal Ring */}
+      {(showEvolutionEffects || aura !== 'auto' || cLv >= 2) && (lv >= 2 || aura !== 'auto' || cLv >= 2) && (
         <div
           aria-hidden="true"
-          className={`pointer-events-none absolute bottom-1 w-[78%] h-[16%] rounded-full border blur-[0.3px] ${pedestalClass}`}
+          className={`pointer-events-none absolute bottom-1 w-[78%] h-[16%] rounded-full border ${pedestalClass}`}
         />
       )}
 
       {/* Heroic Dark-Fantasy Winged Quadruped Dragon SVG */}
       <svg
         viewBox="0 0 200 200"
-        className={`relative z-10 w-full h-full drop-shadow-[0_14px_18px_rgba(0,0,0,0.8)] transition-transform duration-200 ${levelScale}`}
+        className={`relative z-10 w-full h-full drop-shadow-[0_12px_16px_rgba(0,0,0,0.82)] transition-transform duration-200 ${levelScale}`}
         fill="none"
       >
         <defs>
           <linearGradient id={`dScale_${uid}`} x1="36" y1="26" x2="152" y2="168" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor={p.bodyLight} />
-            <stop offset="48%" stopColor={p.bodyMid} />
+            <stop offset="46%" stopColor={p.bodyMid} />
             <stop offset="100%" stopColor={p.bodyDark} />
+          </linearGradient>
+          <linearGradient id={`dMuscle_${uid}`} x1="60" y1="78" x2="115" y2="148" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor={p.bodyLight} />
+            <stop offset="38%" stopColor={p.bodyMid} />
+            <stop offset="100%" stopColor="#070a10" />
           </linearGradient>
           <linearGradient id={`dPlate_${uid}`} x1="68" y1="62" x2="108" y2="150" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor={p.bellyLight} />
-            <stop offset="55%" stopColor={p.bellyDark} />
+            <stop offset="52%" stopColor={p.bellyDark} />
             <stop offset="100%" stopColor={p.bodyDark} />
           </linearGradient>
           <linearGradient id={`dWingL_${uid}`} x1="16" y1="32" x2="90" y2="134" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor={p.wingVein} stopOpacity="0.9" />
+            <stop offset="0%" stopColor={p.wingVein} stopOpacity="0.92" />
             <stop offset="42%" stopColor={p.wingMembrane} />
             <stop offset="100%" stopColor={p.wingOuter} />
           </linearGradient>
           <linearGradient id={`dWingR_${uid}`} x1="108" y1="18" x2="190" y2="140" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor={p.wingVein} stopOpacity="0.88" />
+            <stop offset="0%" stopColor={p.wingVein} stopOpacity="0.9" />
             <stop offset="42%" stopColor={p.wingMembrane} />
             <stop offset="100%" stopColor={p.wingOuter} />
           </linearGradient>
           <linearGradient id={`dHorn_${uid}`} x1="55" y1="10" x2="115" y2="62" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor={p.hornLight} />
             <stop offset="65%" stopColor={p.hornDark} />
-            <stop offset="100%" stopColor="#0f172a" />
+            <stop offset="100%" stopColor="#090d16" />
           </linearGradient>
           <linearGradient id={`dRock_${uid}`} x1="32" y1="150" x2="170" y2="194" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#64748b" />
             <stop offset="32%" stopColor="#263143" />
-            <stop offset="100%" stopColor="#070a12" />
+            <stop offset="100%" stopColor="#06090f" />
           </linearGradient>
           <radialGradient id={`dGlow_${uid}`} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#ffffff" />
             <stop offset="42%" stopColor={effectiveAuraGlow} stopOpacity="0.96" />
             <stop offset="100%" stopColor={effectiveAuraGlow} stopOpacity="0" />
           </radialGradient>
-          <radialGradient id={`dSpec_${uid}`} cx="35%" cy="28%" r="65%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.48" />
+          <radialGradient id={`dSpec_${uid}`} cx="34%" cy="26%" r="66%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.46" />
             <stop offset="48%" stopColor={p.bodyLight} stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#000000" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#000000" stopOpacity="0.38" />
           </radialGradient>
-          {/* Procedural overlapping armored dragon scales texture */}
-          <pattern id={`dScaleTex_${uid}`} width="9" height="8" patternUnits="userSpaceOnUse">
+          <pattern id={`dScaleTex_${uid}`} width="8" height="7" patternUnits="userSpaceOnUse">
             <path
-              d="M4.5 0.5L8.4 3.4L7 7.4L4.5 7.8L2 7.4L0.6 3.4Z"
+              d="M4 0.4L7.5 3L6.2 6.6L4 6.9L1.8 6.6L0.5 3Z"
               fill="none"
-              stroke="#05080f"
-              strokeOpacity="0.48"
-              strokeWidth="0.95"
+              stroke="#04070d"
+              strokeOpacity="0.54"
+              strokeWidth="0.9"
             />
             <path
-              d="M2.2 2.4L4.5 1.1L6.8 2.4"
+              d="M1.9 2.2L4 1L6.1 2.2"
               stroke="#ffffff"
-              strokeOpacity="0.24"
-              strokeWidth="0.7"
+              strokeOpacity="0.26"
+              strokeWidth="0.65"
               strokeLinecap="round"
             />
           </pattern>
         </defs>
 
-        {/* Ground Shadow & Basalt Cliff Crag */}
-        <ellipse cx="102" cy="186" rx="70" ry="9.5" fill="#000000" opacity="0.68" />
+        {/* ★50+ Celestial Dual Orbital Ring Behind Dragon */}
+        {showAstralOrbit && (
+          <g opacity={showApexHalo ? 0.85 : 0.62}>
+            <circle
+              cx="98"
+              cy="92"
+              r="72"
+              stroke={effectiveAuraGlow}
+              strokeWidth="1.4"
+              strokeDasharray="10 5"
+            />
+            <circle
+              cx="98"
+              cy="92"
+              r="62"
+              stroke="#fde047"
+              strokeOpacity="0.55"
+              strokeWidth="1"
+              strokeDasharray="3 6"
+            />
+          </g>
+        )}
+
+        {/* Ground Shadow & Stratified Basalt Cliff Crag */}
+        <ellipse cx="102" cy="186" rx="70" ry="9.5" fill="#000000" opacity="0.72" />
         <path
-          d="M30 184L42 163L62 157L94 155L134 157L158 165L172 184L142 191L58 191Z"
+          d="M28 184L38 164L56 155L88 153L126 154L154 162L174 184L144 192L56 192Z"
           fill={`url(#dRock_${uid})`}
-          stroke="#090d16"
+          stroke="#070a12"
           strokeWidth="2"
           strokeLinejoin="round"
         />
-        {/* Cliff Rock Facets, Chisel Highlights & Elemental Fissure Cracks */}
         <path
-          d="M42 163L74 172L94 155M134 157L128 176L158 165M74 172L68 189M128 176L138 190M62 157L84 164L112 159"
+          d="M38 164L72 174L92 154M132 156L128 176L158 164M72 174L64 190M128 176L140 191M56 155L84 164L114 159"
           stroke="#94a3b8"
-          strokeOpacity="0.34"
+          strokeOpacity="0.36"
           strokeWidth="1.2"
         />
         <path
-          d="M52 169L78 174L92 167M114 168L134 175L152 170"
+          d="M48 169L78 175L94 167M112 167L136 175L156 169"
           stroke={effectiveAuraGlow}
-          strokeOpacity="0.78"
-          strokeWidth="1.7"
+          strokeOpacity={showPolished ? 0.92 : 0.68}
+          strokeWidth={showPolished ? '2.1' : '1.6'}
           strokeLinecap="round"
         />
 
-        {/* Celestial Storm Wing Gear Overlay */}
-        {gear === 'wings' && (
+        {/* Celestial Storm Wing Gear OR ★75+ Radiant Wing Crest Flares */}
+        {(gear === 'wings' || showCelestialFlares) && (
           <g className="animate-dragon-wing">
             <path
               d="M84 86C52 44 14 26 6 58C8 82 32 104 68 112Z"
               fill={effectiveAuraGlow}
-              fillOpacity="0.34"
+              fillOpacity={gear === 'wings' ? '0.32' : '0.18'}
               stroke="#e0f2fe"
-              strokeWidth="1.6"
+              strokeOpacity={gear === 'wings' ? '0.9' : '0.55'}
+              strokeWidth="1.5"
             />
             <path
               d="M112 84C144 36 184 18 194 54C190 80 164 104 126 112Z"
               fill={effectiveAuraGlow}
-              fillOpacity="0.34"
+              fillOpacity={gear === 'wings' ? '0.32' : '0.18'}
               stroke="#e0f2fe"
-              strokeWidth="1.6"
+              strokeOpacity={gear === 'wings' ? '0.9' : '0.55'}
+              strokeWidth="1.5"
             />
           </g>
         )}
@@ -681,8 +704,8 @@ export const DragonIllustration: React.FC<{
           <path
             d="M34 56C44 68 46 84 40 100M26 70C32 82 28 96 22 108M44 66C54 78 56 92 52 106"
             stroke={p.wingVein}
-            strokeOpacity="0.72"
-            strokeWidth="1.2"
+            strokeOpacity={showPolished ? '0.88' : '0.72'}
+            strokeWidth="1.3"
             strokeLinecap="round"
           />
         </g>
@@ -700,7 +723,6 @@ export const DragonIllustration: React.FC<{
             strokeWidth="2.4"
             strokeLinejoin="round"
           />
-          {/* Wing Arm & Finger Bones + Specular Rim */}
           <path
             d="M104 88C114 62 122 38 130 24M130 24L184 78M130 24L176 124M130 24L154 124M130 24L126 118"
             stroke={p.wingOuter}
@@ -710,23 +732,21 @@ export const DragonIllustration: React.FC<{
           <path
             d="M105 86C114 61 122 38 129 25"
             stroke={p.bodyLight}
-            strokeOpacity="0.42"
+            strokeOpacity="0.45"
             strokeWidth="1.2"
             strokeLinecap="round"
           />
-          {/* Apex Hooked Wing-Thumb Claw */}
           <path
             d="M130 24C126 15 129 9 135 8C136 14 135 20 133 26Z"
             fill={`url(#dHorn_${uid})`}
             stroke={p.bodyDark}
             strokeWidth="1.3"
           />
-          {/* Wing Membrane Capillary Glow Veins */}
           <path
             d="M136 42C150 56 164 78 168 102M132 58C142 74 146 96 144 116M148 58C160 66 172 80 176 96"
             stroke={p.wingVein}
-            strokeOpacity="0.74"
-            strokeWidth="1.25"
+            strokeOpacity={showPolished ? '0.9' : '0.74'}
+            strokeWidth="1.3"
             strokeLinecap="round"
           />
         </g>
@@ -745,7 +765,7 @@ export const DragonIllustration: React.FC<{
         />
         <path
           d="M148 138L153 130L156 142M162 150L170 144L168 157M166 166L175 166L166 175M114 178L102 183L112 170L124 174Z"
-          fill={p.crestColor}
+          fill={showAncientRunes ? effectiveAuraGlow : p.crestColor}
           stroke={p.bodyDark}
           strokeWidth="1.4"
           strokeLinejoin="round"
@@ -754,7 +774,7 @@ export const DragonIllustration: React.FC<{
         {/* BACK RIGHT HINDLEG */}
         <path
           d="M114 120C132 122 142 136 134 154L142 168L130 170L122 154C116 144 110 132 114 120Z"
-          fill={`url(#dScale_${uid})`}
+          fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2"
           strokeLinejoin="round"
@@ -770,10 +790,10 @@ export const DragonIllustration: React.FC<{
           strokeLinecap="round"
         />
 
-        {/* QUADRUPED MUSCULAR TORSO & SCALE ARMOR */}
+        {/* QUADRUPED MUSCULAR TORSO & SCULPTED RIB/PECTORAL ARMOR */}
         <path
           d="M66 96C66 78 96 76 118 92C134 106 134 134 118 148C98 160 72 152 66 130C62 116 64 106 66 96Z"
-          fill={`url(#dScale_${uid})`}
+          fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2.4"
         />
@@ -785,6 +805,15 @@ export const DragonIllustration: React.FC<{
           d="M66 96C66 78 96 76 118 92C134 106 134 134 118 148C98 160 72 152 66 130C62 116 64 106 66 96Z"
           fill={`url(#dSpec_${uid})`}
         />
+        {/* Ribcage & Serratus Muscle Contour Lines */}
+        <path
+          d="M101 104C110 107 116 113 118 120M100 115C108 118 114 124 116 130"
+          stroke={p.bodyDark}
+          strokeOpacity="0.6"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+
         {/* Overlapping Ventral Chest & Belly Scale Plates */}
         <path
           d="M72 90C76 82 94 82 98 92C100 112 96 134 86 148C74 142 68 118 72 90Z"
@@ -802,12 +831,12 @@ export const DragonIllustration: React.FC<{
         <path
           d="M74 96Q85 100 95 96M73 106Q85 110 95 106M74 116Q85 120 93 116"
           stroke="#ffffff"
-          strokeOpacity="0.28"
+          strokeOpacity="0.3"
           strokeWidth="0.9"
           strokeLinecap="round"
         />
 
-        {/* S-CURVED SCALED NECK + DORSAL CREST SPIKES */}
+        {/* S-CURVED SCALED NECK + DORSAL RUNE CREST SPIKES */}
         <path
           d="M66 96C64 78 66 64 70 52L94 56C98 72 104 86 102 100Z"
           fill={`url(#dScale_${uid})`}
@@ -828,16 +857,16 @@ export const DragonIllustration: React.FC<{
         />
         <path
           d="M89 48L102 41L95 55M93 58L108 54L98 67M97 70L112 68L102 80M108 88L122 83L114 96"
-          fill={p.crestColor}
+          fill={showAncientRunes ? effectiveAuraGlow : p.crestColor}
           stroke={p.bodyDark}
           strokeWidth="1.5"
           strokeLinejoin="round"
         />
 
-        {/* FRONT FORELIMBS + SCULPTED MUSCLE + TALONS */}
+        {/* FRONT FORELIMBS + SCULPTED DELTOID/FOREARM MUSCLE + TALONS */}
         <path
           d="M92 106C106 108 114 122 108 136L104 166L92 166L92 140C86 128 84 114 92 106Z"
-          fill={`url(#dScale_${uid})`}
+          fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2.2"
           strokeLinejoin="round"
@@ -849,8 +878,8 @@ export const DragonIllustration: React.FC<{
         <path
           d="M95 111C103 113 107 123 103 134"
           stroke={p.bodyLight}
-          strokeOpacity="0.45"
-          strokeWidth="1.4"
+          strokeOpacity="0.52"
+          strokeWidth="1.5"
           strokeLinecap="round"
         />
         <path d="M108 134L118 128L107 142" fill={`url(#dHorn_${uid})`} stroke={p.bodyDark} strokeWidth="1.3" />
@@ -863,7 +892,7 @@ export const DragonIllustration: React.FC<{
 
         <path
           d="M68 114C60 124 58 138 62 152L58 164L70 165L74 146C78 134 76 122 68 114Z"
-          fill={`url(#dScale_${uid})`}
+          fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2"
           strokeLinejoin="round"
@@ -878,6 +907,14 @@ export const DragonIllustration: React.FC<{
           strokeWidth="2.6"
           strokeLinecap="round"
         />
+
+        {/* ★100 Sovereign Apex Halo Crown Behind Skull */}
+        {showApexHalo && (
+          <g>
+            <circle cx="72" cy="36" r="24" stroke="#fde047" strokeWidth="1.6" strokeOpacity="0.85" />
+            <path d="M72 9L74 15M52 18L56 22M92 18L88 22" stroke="#fde047" strokeWidth="1.8" strokeLinecap="round" />
+          </g>
+        )}
 
         {/* FIERCE THREE-QUARTER DRAGON HEAD, HORNS & ROARING FANGED JAWS */}
         <path
@@ -902,9 +939,14 @@ export const DragonIllustration: React.FC<{
           strokeWidth="1.6"
           strokeLinejoin="round"
         />
-        {/* Striated Keratin Ridges & Metallic Rings along Horns */}
-        <path d="M74 21L82 24M88 21L96 24" stroke="#facc15" strokeOpacity="0.78" strokeWidth="1.5" strokeLinecap="round" />
-        <path d="M72 28L77 30M84 26L89 29M94 16L99 19" stroke="#0f172a" strokeOpacity="0.5" strokeWidth="1.1" strokeLinecap="round" />
+        <path
+          d="M74 21L82 24M88 21L96 24"
+          stroke={showPolished ? '#fde047' : '#facc15'}
+          strokeOpacity={showPolished ? '0.95' : '0.78'}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path d="M72 28L77 30M84 26L89 29M94 16L99 19" stroke="#0f172a" strokeOpacity="0.52" strokeWidth="1.1" strokeLinecap="round" />
 
         {/* Cheek & Jaw Frill Spikes */}
         <path
@@ -919,7 +961,7 @@ export const DragonIllustration: React.FC<{
         <path
           d="M40 54L68 50L70 64L46 66Z"
           fill={`url(#dGlow_${uid})`}
-          opacity={mood === 'fever' || mood === 'battle' || isPressed ? 0.95 : 0.76}
+          opacity={mood === 'fever' || mood === 'battle' || isPressed ? 0.96 : 0.78}
         />
 
         {/* Lower Snarling Jaw & Chin Spike */}
@@ -945,8 +987,7 @@ export const DragonIllustration: React.FC<{
           d="M36 52C38 44 48 37 64 33C76 30 85 36 86 47C82 54 70 56 54 55L40 56Z"
           fill={`url(#dScaleTex_${uid})`}
         />
-        {/* Snout Specular Ridge */}
-        <path d="M40 49C46 43 56 39 68 37" stroke={p.bodyLight} strokeOpacity="0.55" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M40 49C46 43 56 39 68 37" stroke={p.bodyLight} strokeOpacity="0.6" strokeWidth="1.2" strokeLinecap="round" />
         <path d="M41 55L43 61L45 55M49 55L51 60L53 55M57 55L59 60L61 55" fill="#f8fafc" />
 
         {/* Fierce Brow Ridge & Multi-Layered Glassy Dragon Eye */}
@@ -954,7 +995,7 @@ export const DragonIllustration: React.FC<{
         <ellipse cx="62" cy="44" rx="5.2" ry="3.4" transform="rotate(-10 62 44)" fill="#05070c" />
         <ellipse cx="62" cy="44" rx="3.7" ry="2.4" transform="rotate(-10 62 44)" fill={p.eyeGlow} />
         <ellipse cx="62" cy="44" rx="0.9" ry="2.2" fill="#05070c" />
-        <circle cx="60.4" cy="42.8" r="1.1" fill="#ffffff" fillOpacity="0.9" />
+        <circle cx="60.4" cy="42.8" r="1.1" fill="#ffffff" fillOpacity="0.92" />
 
         {/* Glowing Nostril Smoke / Ember */}
         <circle cx="43" cy="48" r="1.8" fill={p.eyeGlow} />
@@ -972,7 +1013,7 @@ export const DragonIllustration: React.FC<{
           </g>
         )}
 
-        {(p.element === 'storm' || mood === 'fever' || mood === 'battle') && (
+        {(p.element === 'storm' || mood === 'fever' || mood === 'battle' || showAncientRunes) && (
           <g className="animate-dragon-bolt">
             <path
               d="M28 52L18 46L23 39L12 32"
@@ -1048,18 +1089,18 @@ export const DragonIllustration: React.FC<{
         )}
       </svg>
 
-      {/* Star Customization Level Badge (Custom_LVL >= 1) */}
-      {showEvolutionEffects && customLevel > 0 && (
+      {/* Star Customization Tier Badge (★1..★10) */}
+      {showEvolutionEffects && cLv > 0 && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-1 right-1 z-20 px-1.5 h-5 rounded-full bg-indigo-500/95 border border-indigo-200 text-white font-mono-num text-[9px] font-black flex items-center justify-center shadow-md"
+          className={`pointer-events-none absolute bottom-1 right-1 z-20 px-1.5 h-5 rounded-full border font-mono-num text-[9px] font-black flex items-center justify-center shadow-md ${starMeta.badgeClass}`}
         >
-          ★{customLevel}
+          ★{cLv}
         </span>
       )}
 
-      {/* Active DMD Generator Badge */}
-      {showEvolutionEffects && staked && (
+      {/* Vault Ready Badge when ★10 */}
+      {showEvolutionEffects && cLv >= 10 && (
         <span
           aria-hidden="true"
           className="pointer-events-none absolute bottom-1 left-1 z-20 px-1.5 h-5 rounded-full bg-amber-400/95 border border-amber-200 text-slate-950 font-mono-num text-[9px] font-black flex items-center justify-center shadow-md"
