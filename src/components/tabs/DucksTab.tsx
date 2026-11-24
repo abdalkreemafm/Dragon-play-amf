@@ -111,6 +111,53 @@ function formatHms(ms: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+const LiveRemainingHms: React.FC<{
+  targetMs: number;
+  prefix?: string;
+  sliceFrom?: number;
+}> = ({ targetMs, prefix = '', sliceFrom = 0 }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [targetMs]);
+  const text = formatHms(Math.max(0, targetMs - now));
+  return <>{prefix}{sliceFrom > 0 ? text.slice(sliceFrom) : text}</>;
+};
+
+const LiveBreedingProgressBar: React.FC<{ breedingEndsAt: number }> = ({ breedingEndsAt }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [breedingEndsAt]);
+  const rem = Math.max(0, breedingEndsAt - now);
+  const pct = Math.min(100, Math.max(2, ((ECONOMY_LIMITS.BREEDING_DURATION_MS - rem) / ECONOMY_LIMITS.BREEDING_DURATION_MS) * 100));
+  return (
+    <div
+      className="h-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all duration-300"
+      style={{ width: `${pct}%` }}
+    />
+  );
+};
+
+const LiveEggCycleCountdown: React.FC<{ lastBreedingEggAt: number }> = ({ lastBreedingEggAt }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [lastBreedingEggAt]);
+  const rem = Math.max(
+    0,
+    ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS -
+      ((now - lastBreedingEggAt) % ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS)
+  );
+  return <>{formatHms(rem).slice(3)}</>;
+};
+
 export const DucksTab: React.FC<DucksTabProps> = ({
   state,
   onSelectDuck,
@@ -150,11 +197,10 @@ export const DucksTab: React.FC<DucksTabProps> = ({
   const [mergeMode, setMergeMode] = useState<'TO_XL' | 'TO_XXL'>('TO_XL');
   const [mergeSelectedIds, setMergeSelectedIds] = useState<string[]>([]);
   const [selectedLockedSlot, setSelectedLockedSlot] = useState<number | null>(null);
-  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
   const particleIdRef = useRef(0);
-  const lastTapRef = useRef(0);
+  const comboTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeDuck: Duck | undefined = state.ducks[state.activeDuckIndex] ?? state.ducks[0];
   const rarityStyle = activeDuck ? RARITY_STYLE[activeDuck.rarity] : RARITY_STYLE.COMMON;
@@ -169,7 +215,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
   const [draftGear, setDraftGear] = useState<DuckGearId>(activeDuck?.gear ?? 'none');
   const [draftAura, setDraftAura] = useState<DuckAuraId>(activeDuck?.aura ?? 'auto');
 
-  // IMPORTANT: Sync ONLY on dragon ID or persisted gear/aura changes (never on 1-second state clone!)
+  // IMPORTANT: Sync ONLY on dragon ID or persisted gear/aura changes (never on background clones!)
   useEffect(() => {
     if (activeDuck) {
       setDraftGear(activeDuck.gear ?? 'none');
@@ -178,15 +224,18 @@ export const DucksTab: React.FC<DucksTabProps> = ({
   }, [activeDuck?.id, activeDuck?.gear, activeDuck?.aura]);
 
   useEffect(() => {
+    return () => {
+      if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (feverSecLeft <= 0) return;
     const timer = setInterval(() => {
-      setNowTs(Date.now());
-      if (Date.now() - lastTapRef.current > 1800 && comboCount > 0) {
-        setComboCount(0);
-      }
-      setFeverSecLeft((s) => Math.max(0, s - 0.25));
-    }, 250);
+      setFeverSecLeft((s) => (s <= 0.5 ? 0 : s - 0.5));
+    }, 500);
     return () => clearInterval(timer);
-  }, [comboCount]);
+  }, [feverSecLeft > 0]);
 
   const isFever = feverSecLeft > 0;
   const comboMultiplier = isFever ? 5 : comboCount >= 10 ? 3 : comboCount >= 5 ? 2 : 1;
@@ -253,7 +302,10 @@ export const DucksTab: React.FC<DucksTabProps> = ({
       return;
     }
 
-    lastTapRef.current = Date.now();
+    if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+    comboTimeoutRef.current = setTimeout(() => {
+      setComboCount(0);
+    }, 1850);
     const nextCombo = comboCount + 1;
     setComboCount(nextCombo);
 
@@ -349,6 +401,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                     aura={vd.aura}
                     staked={true}
                     showEvolutionEffects={true}
+                    motionEnabled={state.dragonMotionEnabled ?? true}
                     className="w-16 h-16 shrink-0"
                   />
                   <div className="min-w-0 flex-1 space-y-1">
@@ -486,6 +539,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                       gear={dragon.gear}
                       aura={dragon.aura}
                       showEvolutionEffects={true}
+                      motionEnabled={state.dragonMotionEnabled ?? true}
                       className="w-12 h-12"
                     />
                     <span className="font-mono-num text-[10px] font-bold text-amber-300">
@@ -534,6 +588,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                     gear={d.gear}
                     aura={d.aura}
                     showEvolutionEffects={true}
+                    motionEnabled={state.dragonMotionEnabled ?? true}
                     className="w-16 h-16 mb-1"
                   />
                   <span className={`text-[10px] font-bold ${st.color}`}>
@@ -641,6 +696,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                 gear={draftGear}
                 aura={draftAura}
                 showEvolutionEffects={true}
+                motionEnabled={state.dragonMotionEnabled ?? true}
                 className="w-24 h-24"
               />
             </div>
@@ -731,6 +787,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                         skin={skinId}
                         level={activeDuck.level}
                         customLevel={activeDuck.customLevel}
+                        motionEnabled={state.dragonMotionEnabled ?? true}
                         className="w-9 h-9"
                       />
                       <span className="text-[10px] font-bold truncate w-full text-center">
@@ -881,21 +938,10 @@ export const DucksTab: React.FC<DucksTabProps> = ({
     (d) => d.slotIndex === null || d.slotIndex >= state.unlockedSlots
   );
 
-  // Timers for 8h Cost Reset & 24h Breeding Gate + 15m Egg
-  const costResetRemainingMs =
-    activeDuck.costResetEndsAt && activeDuck.costResetEndsAt > nowTs
-      ? activeDuck.costResetEndsAt - nowTs
-      : 0;
-  const isBreedingActive = Boolean(activeDuck.breedingEndsAt && activeDuck.breedingEndsAt > nowTs);
-  const breedingRemainingMs = isBreedingActive && activeDuck.breedingEndsAt ? activeDuck.breedingEndsAt - nowTs : 0;
-  const nextEggRemainingMs =
-    isBreedingActive && activeDuck.lastBreedingEggAt
-      ? Math.max(
-          0,
-          ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS -
-            ((nowTs - activeDuck.lastBreedingEggAt) % ECONOMY_LIMITS.BREEDING_EGG_INTERVAL_MS)
-        )
-      : 0;
+  // Timers for 8h Cost Reset & 24h Breeding Gate + 15m Egg (evaluated cleanly without 250ms re-renders)
+  const renderNow = Date.now();
+  const hasCostResetTimer = Boolean(activeDuck.costResetEndsAt && activeDuck.costResetEndsAt > renderNow);
+  const isBreedingActive = Boolean(activeDuck.breedingEndsAt && activeDuck.breedingEndsAt > renderNow);
   const levelFeedsDone = activeDuck.feedsProgress >= activeDuck.feedsRequired;
   const readyForBreedingGate = !isMaxLevel && levelFeedsDone && !isBreedingActive;
   const xlEggUpgradeCost = getXlEggUpgradeCost(activeDuck.level, activeSize);
@@ -1175,9 +1221,13 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                 {activeDuck.name} {activeSize !== 'NORMAL' ? `(${activeSize})` : ''}
               </span>
               <span className="text-amber-300 shrink-0">
-                {isBreedingActive
-                  ? `تزاوج ${formatHms(breedingRemainingMs)}`
-                  : 'اسحب للتدوير · انقر للإطعام'}
+                {isBreedingActive && activeDuck.breedingEndsAt ? (
+                  <LiveRemainingHms targetMs={activeDuck.breedingEndsAt} prefix="تزاوج " />
+                ) : (state.dragonMotionEnabled ?? true) ? (
+                  'اسحب للتدوير · انقر للإطعام'
+                ) : (
+                  'وضع السكون · اسحب لتدوير المجسم'
+                )}
               </span>
             </div>
 
@@ -1191,6 +1241,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                 gear={activeDuck.gear}
                 aura={activeDuck.aura}
                 isFever={isFever}
+                motionEnabled={state.dragonMotionEnabled ?? true}
                 feedPulseNonce={feedPulseNonce}
                 levelBurstNonce={levelBurstNonce}
                 onTapStage={(cx, cy) => triggerFeedAction(cx, cy)}
@@ -1277,12 +1328,13 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                         customLevel={occupant.customLevel}
                         gear={occupant.gear}
                         aura={occupant.aura}
+                        motionEnabled={state.dragonMotionEnabled ?? true}
                         className="w-8 h-8"
                       />
                       <span className="absolute -bottom-1 px-1 rounded bg-slate-950/90 border border-slate-700 font-mono-num text-[8px] font-black text-amber-300">
                         L{occupant.level}
                       </span>
-                      {occupant.breedingEndsAt && occupant.breedingEndsAt > nowTs && (
+                      {occupant.breedingEndsAt && occupant.breedingEndsAt > renderNow && (
                         <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-rose-500 flex items-center justify-center">
                           <Heart className="w-2.5 h-2.5 text-white fill-white" />
                         </span>
@@ -1340,7 +1392,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
 
           {/* 8h Cost Reset Counter + Breeding Gate + Level Feeding Progress */}
           <div className="bg-[#161923] border border-slate-800 rounded-2xl px-3.5 py-2.5 space-y-1.5">
-            {isBreedingActive ? (
+            {isBreedingActive && activeDuck.breedingEndsAt ? (
               <>
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-rose-300 font-black flex items-center gap-1.5">
@@ -1348,19 +1400,21 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                     <span>تزاوج المستوى {activeDuck.level} ← {activeDuck.level + 1}</span>
                   </span>
                   <span className="font-mono-num text-amber-300 font-black">
-                    {formatHms(breedingRemainingMs)}
+                    <LiveRemainingHms targetMs={activeDuck.breedingEndsAt} />
                   </span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-slate-900 overflow-hidden border border-slate-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.max(2, ((ECONOMY_LIMITS.BREEDING_DURATION_MS - breedingRemainingMs) / ECONOMY_LIMITS.BREEDING_DURATION_MS) * 100))}%`,
-                    }}
-                  />
+                  <LiveBreedingProgressBar breedingEndsAt={activeDuck.breedingEndsAt} />
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono-num text-slate-300">
-                  <span>🥚 بيضة تزاوج قادمة خلال: {formatHms(nextEggRemainingMs).slice(3)}</span>
+                  <span>
+                    🥚 بيضة تزاوج قادمة خلال:{' '}
+                    {activeDuck.lastBreedingEggAt ? (
+                      <LiveEggCycleCountdown lastBreedingEggAt={activeDuck.lastBreedingEggAt} />
+                    ) : (
+                      '15:00'
+                    )}
+                  </span>
                   <span className="text-emerald-400 font-bold">رصيد البيض: {state.breedingEggs ?? 0}</span>
                 </div>
               </>
@@ -1376,9 +1430,11 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                     </span>
                   </span>
                   <span className="font-mono-num text-[10px] font-black text-sky-300">
-                    {costResetRemainingMs > 0
-                      ? `إعادة التكلفة: ${formatHms(costResetRemainingMs)}`
-                      : `التكلفة عند البداية (${effectiveFeedCost}⚡)`}
+                    {hasCostResetTimer && activeDuck.costResetEndsAt ? (
+                      <LiveRemainingHms targetMs={activeDuck.costResetEndsAt} prefix="إعادة التكلفة: " />
+                    ) : (
+                      `التكلفة عند البداية (${effectiveFeedCost}⚡)`
+                    )}
                   </span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-slate-900 overflow-hidden border border-slate-800">
@@ -1452,7 +1508,13 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                   <>
                     <Heart className="w-5 h-5 shrink-0 text-rose-400" />
                     <span className="font-mono-num whitespace-nowrap">
-                      التزاوج جارٍ ({formatHms(breedingRemainingMs)})
+                      {activeDuck.breedingEndsAt ? (
+                        <>
+                          التزاوج جارٍ (<LiveRemainingHms targetMs={activeDuck.breedingEndsAt} />)
+                        </>
+                      ) : (
+                        'التزاوج جارٍ'
+                      )}
                     </span>
                   </>
                 )
@@ -1767,6 +1829,7 @@ export const DucksTab: React.FC<DucksTabProps> = ({
                           gear={rd.gear}
                           aura={rd.aura}
                           showEvolutionEffects={true}
+                          motionEnabled={state.dragonMotionEnabled ?? true}
                           className="w-12 h-12"
                         />
                         <span className={`text-[10px] font-bold truncate w-full ${rdRarity.color}`}>

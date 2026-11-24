@@ -445,6 +445,7 @@ export const DragonIllustration: React.FC<{
   gear?: DuckGearId;
   aura?: DuckAuraId;
   staked?: boolean;
+  motionEnabled?: boolean;
 }> = ({
   skin,
   className = 'w-44 h-44',
@@ -456,6 +457,7 @@ export const DragonIllustration: React.FC<{
   gear = 'none',
   aura = 'auto',
   staked = false,
+  motionEnabled = true,
 }) => {
   const uid = useId().replace(/:/g, '');
   const p = DRAGON_PALETTES[skin] ?? DRAGON_PALETTES.aqua;
@@ -469,12 +471,12 @@ export const DragonIllustration: React.FC<{
       : lv === 1
         ? 'scale-[0.86]'
         : lv === 2
-          ? 'scale-[0.91]'
+          ? 'scale-[0.89]'
           : lv === 3
-            ? 'scale-[0.96]'
+            ? 'scale-[0.92]'
             : lv === 4
-              ? 'scale-[1.01]'
-              : 'scale-[1.06]';
+              ? 'scale-[0.95]'
+              : 'scale-[0.98]';
 
   const effectiveAuraGlow =
     aura === 'gold'
@@ -516,9 +518,11 @@ export const DragonIllustration: React.FC<{
       className={`relative flex items-center justify-center select-none ${className} transition-transform duration-150 ${
         isPressed
           ? 'scale-95 -translate-y-0.5 brightness-115'
-          : mood === 'hurt'
-            ? 'animate-hit-shake'
-            : 'animate-duck-breathe'
+          : !motionEnabled
+            ? ''
+            : mood === 'hurt'
+              ? 'animate-hit-shake'
+              : 'animate-duck-breathe'
       }`}
     >
       {/* Crisp CSS Radial Aura (zero expensive WebView blur filter) */}
@@ -660,7 +664,7 @@ export const DragonIllustration: React.FC<{
 
         {/* Celestial Storm Wing Gear OR ★75+ Radiant Wing Crest Flares */}
         {(gear === 'wings' || showCelestialFlares) && (
-          <g className="animate-dragon-wing">
+          <g className={motionEnabled ? 'animate-dragon-wing' : ''}>
             <path
               d="M84 86C52 44 14 26 6 58C8 82 32 104 68 112Z"
               fill={effectiveAuraGlow}
@@ -681,7 +685,7 @@ export const DragonIllustration: React.FC<{
         )}
 
         {/* BACK LEFT BAT-WING */}
-        <g className="animate-dragon-wing">
+        <g className={motionEnabled ? 'animate-dragon-wing' : ''}>
           <path
             d="M78 82C62 62 46 46 32 38C22 50 12 72 10 96C20 98 24 114 22 126C36 116 44 118 48 132C58 116 68 114 78 122Z"
             fill={`url(#dWingL_${uid})`}
@@ -711,7 +715,7 @@ export const DragonIllustration: React.FC<{
         </g>
 
         {/* FRONT RIGHT BAT-WING */}
-        <g className="animate-dragon-wing">
+        <g className={motionEnabled ? 'animate-dragon-wing' : ''}>
           <path
             d={
               lv >= 4
@@ -771,17 +775,24 @@ export const DragonIllustration: React.FC<{
           strokeLinejoin="round"
         />
 
-        {/* BACK RIGHT HINDLEG */}
+        {/* BACK RIGHT HINDLEG + PELVIC HAUNCH JOINT */}
         <path
-          d="M114 120C132 122 142 136 134 154L142 168L130 170L122 154C116 144 110 132 114 120Z"
+          d="M111 118C128 118 142 132 135 154L142 168L130 170L122 154C116 144 109 130 111 118Z"
           fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2"
           strokeLinejoin="round"
         />
         <path
-          d="M114 120C132 122 142 136 134 154L142 168L130 170L122 154C116 144 110 132 114 120Z"
+          d="M111 118C128 118 142 132 135 154L142 168L130 170L122 154C116 144 109 130 111 118Z"
           fill={`url(#dScaleTex_${uid})`}
+        />
+        <path
+          d="M114 124C124 125 130 134 129 144M127 148C132 150 135 156 135 162"
+          stroke={p.bodyLight}
+          strokeOpacity="0.45"
+          strokeWidth="1.4"
+          strokeLinecap="round"
         />
         <path
           d="M126 168L120 174M134 169L132 175M141 168L144 174"
@@ -836,7 +847,7 @@ export const DragonIllustration: React.FC<{
           strokeLinecap="round"
         />
 
-        {/* S-CURVED SCALED NECK + DORSAL RUNE CREST SPIKES */}
+        {/* S-CURVED SCALED NECK + OCCIPITAL COLLAR + DORSAL RUNE CREST SPIKES */}
         <path
           d="M66 96C64 78 66 64 70 52L94 56C98 72 104 86 102 100Z"
           fill={`url(#dScale_${uid})`}
@@ -848,8 +859,22 @@ export const DragonIllustration: React.FC<{
           d="M66 96C64 78 66 64 70 52L94 56C98 72 104 86 102 100Z"
           fill={`url(#dScaleTex_${uid})`}
         />
+        {/* Neck-to-Skull Collar & Sternomastoid Tendon Muscle */}
         <path
-          d="M68 62Q82 65 94 62M67 72Q82 76 96 72M67 82Q83 86 98 82"
+          d="M68 53C76 48 86 48 94 54L91 61C84 57 75 57 68 60Z"
+          fill={`url(#dPlate_${uid})`}
+          stroke={p.bodyDark}
+          strokeWidth="1.3"
+        />
+        <path
+          d="M73 59C73 74 75 84 78 94M88 60C91 74 94 84 95 94"
+          stroke={p.bodyDark}
+          strokeOpacity="0.52"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+        <path
+          d="M68 64Q82 67 94 64M67 74Q82 78 96 74M67 84Q83 88 98 84"
           stroke={p.bellyLight}
           strokeOpacity="0.58"
           strokeWidth="1.4"
@@ -863,20 +888,20 @@ export const DragonIllustration: React.FC<{
           strokeLinejoin="round"
         />
 
-        {/* FRONT FORELIMBS + SCULPTED DELTOID/FOREARM MUSCLE + TALONS */}
+        {/* FRONT FORELIMBS + DELTOID SHOULDER SOCKET + ELBOW JOINT + TALONS */}
         <path
-          d="M92 106C106 108 114 122 108 136L104 166L92 166L92 140C86 128 84 114 92 106Z"
+          d="M88 103C104 103 114 117 109 135L104 166L92 166L92 140C86 128 83 113 88 103Z"
           fill={`url(#dMuscle_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2.2"
           strokeLinejoin="round"
         />
         <path
-          d="M92 106C106 108 114 122 108 136L104 166L92 166L92 140C86 128 84 114 92 106Z"
+          d="M88 103C104 103 114 117 109 135L104 166L92 166L92 140C86 128 83 113 88 103Z"
           fill={`url(#dScaleTex_${uid})`}
         />
         <path
-          d="M95 111C103 113 107 123 103 134"
+          d="M90 107C101 108 107 117 105 129M94 140C99 142 103 142 106 139"
           stroke={p.bodyLight}
           strokeOpacity="0.52"
           strokeWidth="1.5"
@@ -975,19 +1000,34 @@ export const DragonIllustration: React.FC<{
         <path d="M52 70L48 76L56 71Z" fill={`url(#dHorn_${uid})`} stroke={p.bodyDark} strokeWidth="1.1" />
         <path d="M47 62L49 57L51 62M55 61L57 57L59 61M63 60L65 56L67 60" fill="#f8fafc" />
 
-        {/* Upper Angular Predator Skull & Snout */}
+        {/* Upper Angular Predator Skull, Nasal Bridge Armor & Closed Snout Tip */}
         <path
-          d="M36 52C38 44 48 37 64 33C76 30 85 36 86 47C82 54 70 56 54 55L40 56Z"
+          d="M35 52C37 44 48 37 64 33C76 30 85 36 86 47C82 54 70 56 54 55L39 56Z"
           fill={`url(#dScale_${uid})`}
           stroke={p.bodyDark}
           strokeWidth="2.1"
           strokeLinejoin="round"
         />
         <path
-          d="M36 52C38 44 48 37 64 33C76 30 85 36 86 47C82 54 70 56 54 55L40 56Z"
+          d="M35 52C37 44 48 37 64 33C76 30 85 36 86 47C82 54 70 56 54 55L39 56Z"
           fill={`url(#dScaleTex_${uid})`}
         />
-        <path d="M40 49C46 43 56 39 68 37" stroke={p.bodyLight} strokeOpacity="0.6" strokeWidth="1.2" strokeLinecap="round" />
+        {/* Nasal Tip Horn Spur & Premaxilla Nose Cap */}
+        <path
+          d="M38 46L34 40L44 43Z"
+          fill={`url(#dHorn_${uid})`}
+          stroke={p.bodyDark}
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M36 52C36 48 40 45 45 46L44 55Z"
+          fill={p.bodyMid}
+          stroke={p.bodyDark}
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path d="M41 48C48 43 57 39 69 37" stroke={p.bodyLight} strokeOpacity="0.62" strokeWidth="1.3" strokeLinecap="round" />
         <path d="M41 55L43 61L45 55M49 55L51 60L53 55M57 55L59 60L61 55" fill="#f8fafc" />
 
         {/* Fierce Brow Ridge & Multi-Layered Glassy Dragon Eye */}
@@ -997,12 +1037,13 @@ export const DragonIllustration: React.FC<{
         <ellipse cx="62" cy="44" rx="0.9" ry="2.2" fill="#05070c" />
         <circle cx="60.4" cy="42.8" r="1.1" fill="#ffffff" fillOpacity="0.92" />
 
-        {/* Glowing Nostril Smoke / Ember */}
-        <circle cx="43" cy="48" r="1.8" fill={p.eyeGlow} />
+        {/* Flared Nostril Cavity & Glowing Ember */}
+        <ellipse cx="42.5" cy="48.5" rx="2.3" ry="1.5" transform="rotate(-18 42.5 48.5)" fill="#090d16" />
+        <circle cx="42.5" cy="48.5" r="1.3" fill={p.eyeGlow} />
 
         {/* LIVE ELEMENTAL BREATH & LIGHTNING EFFECTS */}
         {(p.element === 'frost' || mood === 'fever') && (
-          <g className="animate-dragon-breath">
+          <g className={motionEnabled ? 'animate-dragon-breath' : ''}>
             <path
               d="M39 58C26 56 16 62 12 68C20 68 30 65 40 62Z"
               fill={effectiveAuraGlow}
@@ -1014,7 +1055,7 @@ export const DragonIllustration: React.FC<{
         )}
 
         {(p.element === 'storm' || mood === 'fever' || mood === 'battle' || showAncientRunes) && (
-          <g className="animate-dragon-bolt">
+          <g className={motionEnabled ? 'animate-dragon-bolt' : ''}>
             <path
               d="M28 52L18 46L23 39L12 32"
               stroke={effectiveAuraGlow}
@@ -1040,7 +1081,7 @@ export const DragonIllustration: React.FC<{
         )}
 
         {p.element === 'ember' && (
-          <g className="animate-dragon-breath">
+          <g className={motionEnabled ? 'animate-dragon-breath' : ''}>
             <circle cx="34" cy="56" r="2.4" fill={p.eyeGlow} fillOpacity="0.82" />
             <circle cx="24" cy="49" r="1.6" fill="#fef08a" fillOpacity="0.8" />
             <circle cx="28" cy="66" r="1.5" fill={p.wingVein} fillOpacity="0.75" />
@@ -1120,99 +1161,298 @@ export const ItemIcon: React.FC<{ item: EggItemType; className?: string }> = ({
   className = 'w-10 h-10',
 }) => {
   const uid = useId().replace(/:/g, '');
+
   if (item === 'chest') {
     return (
       <svg viewBox="0 0 48 48" className={className} fill="none">
         <defs>
-          <linearGradient id={`chestLid_${uid}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#fde047" />
+          <linearGradient id={`chestBody_${uid}`} x1="6" y1="16" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#92400e" />
+            <stop offset="100%" stopColor="#451a03" />
+          </linearGradient>
+          <linearGradient id={`chestLid_${uid}`} x1="8" y1="8" x2="40" y2="22" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#fef08a" />
+            <stop offset="55%" stopColor="#f59e0b" />
             <stop offset="100%" stopColor="#b45309" />
           </linearGradient>
         </defs>
-        <rect x="6" y="16" width="36" height="24" rx="5" fill="#78350f" stroke="#f59e0b" strokeWidth="2.5" />
-        <path d="M6 20C6 13 13 10 24 10C35 10 42 13 42 20H6Z" fill={`url(#chestLid_${uid})`} stroke="#fef08a" strokeWidth="1.5" />
-        <rect x="20" y="18" width="8" height="10" rx="2" fill="#facc15" stroke="#451a03" strokeWidth="1.5" />
-        <circle cx="24" cy="23" r="1.8" fill="#451a03" />
+        <ellipse cx="24" cy="42" rx="15" ry="3" fill="#020617" fillOpacity="0.55" />
+        <rect x="6" y="17" width="36" height="23" rx="5" fill={`url(#chestBody_${uid})`} stroke="#f59e0b" strokeWidth="2.2" />
+        <path d="M12 18V39M36 18V39" stroke="#fbbf24" strokeWidth="2.4" strokeOpacity="0.85" />
+        <path d="M6 21C6 12.5 13 8.5 24 8.5C35 8.5 42 12.5 42 21H6Z" fill={`url(#chestLid_${uid})`} stroke="#78350f" strokeWidth="2" />
+        <path d="M10 17H38" stroke="#fef9c3" strokeOpacity="0.55" strokeWidth="1.4" strokeLinecap="round" />
+        <rect x="19" y="17" width="10" height="12" rx="2.5" fill="#facc15" stroke="#451a03" strokeWidth="1.6" />
+        <circle cx="24" cy="22.5" r="2.2" fill="#38bdf8" stroke="#451a03" strokeWidth="1" />
+        <path d="M24 24.5V27" stroke="#451a03" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
     );
   }
+
   if (item === 'grapes') {
     return (
       <svg viewBox="0 0 48 48" className={className} fill="none">
-        <path d="M24 6L34 18L24 38L14 18L24 6Z" fill="#a855f7" stroke="#f3e8ff" strokeWidth="2" />
-        <path d="M24 6L24 38M14 18H34" stroke="#e9d5ff" strokeOpacity="0.45" strokeWidth="1.5" />
+        <defs>
+          <radialGradient id={`gemCore_${uid}`} cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="#f5d0fe" />
+            <stop offset="50%" stopColor="#a855f7" />
+            <stop offset="100%" stopColor="#581c87" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="24" cy="42" rx="11" ry="2.5" fill="#020617" fillOpacity="0.45" />
+        <path d="M24 6L36 17L31 37L24 41L17 37L12 17L24 6Z" fill={`url(#gemCore_${uid})`} stroke="#1e1b4b" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M24 6L28 19L24 41L20 19L24 6Z" fill="#f3e8ff" fillOpacity="0.28" />
+        <path d="M12 17H36M17 37L24 27L31 37" stroke="#f5d0fe" strokeOpacity="0.65" strokeWidth="1.4" />
+        <circle cx="20" cy="14" r="2.1" fill="#ffffff" fillOpacity="0.7" />
       </svg>
     );
   }
+
   if (item === 'chalice') {
     return (
       <svg viewBox="0 0 48 48" className={className} fill="none">
-        <path d="M13 10H35L31 24C30 28 27 30 24 30C21 30 18 28 17 24L13 10Z" fill="#facc15" stroke="#b45309" strokeWidth="2" />
-        <rect x="21" y="30" width="6" height="8" fill="#d97706" />
-        <rect x="15" y="38" width="18" height="4" rx="2" fill="#facc15" />
-        <circle cx="24" cy="18" r="3.5" fill="#ef4444" />
+        <defs>
+          <linearGradient id={`chaliceGold_${uid}`} x1="12" y1="8" x2="36" y2="42" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#fef9c3" />
+            <stop offset="45%" stopColor="#facc15" />
+            <stop offset="100%" stopColor="#b45309" />
+          </linearGradient>
+        </defs>
+        <ellipse cx="24" cy="43" rx="12" ry="2.5" fill="#020617" fillOpacity="0.45" />
+        <path d="M11 14C7 14 6 19 10 21L15 22" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
+        <path d="M37 14C41 14 42 19 38 21L33 22" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
+        <path d="M13 10H35L31.5 24C30.3 28.5 27.4 30.5 24 30.5C20.6 30.5 17.7 28.5 16.5 24L13 10Z" fill={`url(#chaliceGold_${uid})`} stroke="#451a03" strokeWidth="2" strokeLinejoin="round" />
+        <ellipse cx="24" cy="10.5" rx="10" ry="2.5" fill="#38bdf8" stroke="#fef08a" strokeWidth="1.2" />
+        <rect x="21" y="30.5" width="6" height="8" rx="1.5" fill="#d97706" stroke="#451a03" strokeWidth="1.5" />
+        <rect x="15" y="38" width="18" height="4.5" rx="2.2" fill={`url(#chaliceGold_${uid})`} stroke="#451a03" strokeWidth="1.6" />
+        <path d="M24 16L27.5 20.5L24 25L20.5 20.5L24 16Z" fill="#ef4444" stroke="#fef2f2" strokeWidth="1" />
       </svg>
     );
   }
+
   if (item === 'cornucopia') {
     return (
       <svg viewBox="0 0 48 48" className={className} fill="none">
-        <path d="M10 30C12 16 26 10 40 16C34 26 26 36 12 36L10 30Z" fill="#d97706" stroke="#fef08a" strokeWidth="2" />
-        <circle cx="16" cy="28" r="4" fill="#ef4444" />
-        <circle cx="22" cy="24" r="4" fill="#22c55e" />
-        <circle cx="26" cy="30" r="4" fill="#a855f7" />
-        <circle cx="31" cy="22" r="3.5" fill="#facc15" />
+        <defs>
+          <linearGradient id={`hornGold_${uid}`} x1="10" y1="12" x2="40" y2="38" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#fde68a" />
+            <stop offset="55%" stopColor="#d97706" />
+            <stop offset="100%" stopColor="#78350f" />
+          </linearGradient>
+        </defs>
+        <ellipse cx="24" cy="41" rx="14" ry="2.6" fill="#020617" fillOpacity="0.45" />
+        <path d="M9 32C11 16 25 9 41 14C37 22 33 34 14 37L9 32Z" fill={`url(#hornGold_${uid})`} stroke="#451a03" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M18 17C22 21 25 27 25 33M26 14C30 18 32 23 32 28" stroke="#78350f" strokeWidth="1.5" strokeOpacity="0.7" />
+        <circle cx="15.5" cy="30" r="4.2" fill="#ef4444" stroke="#7f1d1d" strokeWidth="1.2" />
+        <circle cx="21.5" cy="24.5" r="4.2" fill="#22c55e" stroke="#14532d" strokeWidth="1.2" />
+        <circle cx="26" cy="30.5" r="4" fill="#a855f7" stroke="#3b0764" strokeWidth="1.2" />
+        <circle cx="30" cy="21" r="3.6" fill="#38bdf8" stroke="#0c4a6e" strokeWidth="1.2" />
+        <circle cx="14.2" cy="28.7" r="1.2" fill="#ffffff" fillOpacity="0.7" />
+        <circle cx="20.2" cy="23.2" r="1.2" fill="#ffffff" fillOpacity="0.7" />
       </svg>
     );
   }
+
   if (item === 'feast') {
     return (
       <svg viewBox="0 0 48 48" className={className} fill="none">
-        <ellipse cx="24" cy="34" rx="18" ry="6" fill="#facc15" stroke="#92400e" strokeWidth="2" />
-        <path d="M12 32C12 20 36 20 36 32H12Z" fill="#ea580c" stroke="#fef08a" strokeWidth="1.5" />
-        <circle cx="24" cy="17" r="4" fill="#fde047" />
+        <defs>
+          <linearGradient id={`feastPlatter_${uid}`} x1="8" y1="18" x2="40" y2="39" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#fef08a" />
+            <stop offset="100%" stopColor="#d97706" />
+          </linearGradient>
+          <radialGradient id={`feastDome_${uid}`} cx="40%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="#fb923c" />
+            <stop offset="65%" stopColor="#dc2626" />
+            <stop offset="100%" stopColor="#7f1d1d" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="24" cy="41" rx="17" ry="3" fill="#020617" fillOpacity="0.5" />
+        <ellipse cx="24" cy="34" rx="18" ry="6" fill={`url(#feastPlatter_${uid})`} stroke="#78350f" strokeWidth="2" />
+        <path d="M11 32C11 19 37 19 37 32H11Z" fill={`url(#feastDome_${uid})`} stroke="#fef08a" strokeWidth="1.6" />
+        <path d="M17 24L24 14L31 24" fill="#fde047" stroke="#92400e" strokeWidth="1.5" strokeLinejoin="round" />
+        <circle cx="24" cy="14" r="3.2" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.2" />
+        <circle cx="16" cy="29" r="2.4" fill="#4ade80" />
+        <circle cx="32" cy="29" r="2.4" fill="#a855f7" />
       </svg>
     );
   }
 
-  // Dragon Eggs (egg_1 .. egg_love) with scaly dragon-shell texture & elemental glow
-  const eggPalette: Record<string, { top: string; bot: string; crack: string }> = {
-    egg_1: { top: '#fef3c7', bot: '#d97706', crack: '#fbbf24' },
-    egg_2: { top: '#bae6fd', bot: '#0284c7', crack: '#38bdf8' },
-    egg_3: { top: '#e9d5ff', bot: '#7e22ce', crack: '#c084fc' },
-    egg_4: { top: '#bbf7d0', bot: '#15803d', crack: '#4ade80' },
-    egg_5: { top: '#fef08a', bot: '#ea580c', crack: '#fb923c' },
-    egg_6: { top: '#fecdd3', bot: '#be123c', crack: '#fb7185' },
-    egg_7: { top: '#cffafe', bot: '#4338ca', crack: '#67e8f9' },
-    egg_love: { top: '#fbcfe8', bot: '#db2777', crack: '#fef08a' },
-  };
-  const pal = eggPalette[item] ?? eggPalette.egg_1;
+  // Rich, diversified dragon eggs (egg_1 .. egg_love) with unique elemental shells, silhouettes & inlays
+  const renderDragonEgg = () => {
+    switch (item) {
+      case 'egg_1':
+        // Terracotta / Amber Speckled Hatchling Egg with warm speckles & moss base
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg1_${uid}`} cx="36%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#fef3c7" />
+                <stop offset="55%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#b45309" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="12" ry="2.6" fill="#020617" fillOpacity="0.45" />
+            <path d="M24 6C15.5 6 10.5 18 10.5 29C10.5 37.5 16.3 42.5 24 42.5C31.7 42.5 37.5 37.5 37.5 29C37.5 18 32.5 6 24 6Z" fill={`url(#egg1_${uid})`} stroke="#1e293b" strokeWidth="2.1" />
+            <circle cx="18" cy="22" r="3" fill="#92400e" fillOpacity="0.6" />
+            <circle cx="30" cy="25" r="2.3" fill="#92400e" fillOpacity="0.55" />
+            <circle cx="22" cy="33" r="3.4" fill="#78350f" fillOpacity="0.55" />
+            <circle cx="28" cy="16" r="1.8" fill="#92400e" fillOpacity="0.5" />
+            <path d="M20 12L23 16L21 19" stroke="#451a03" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <ellipse cx="18.5" cy="14" rx="2.8" ry="5" fill="#ffffff" opacity="0.48" transform="rotate(-18 18.5 14)" />
+          </svg>
+        );
 
-  return (
-    <svg viewBox="0 0 48 48" className={className} fill="none">
-      <defs>
-        <linearGradient id={`egg_${uid}`} x1="12" y1="6" x2="36" y2="42" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor={pal.top} />
-          <stop offset="100%" stopColor={pal.bot} />
-        </linearGradient>
-      </defs>
-      <path
-        d="M24 6C15 6 10 19 10 29C10 37 16 42 24 42C32 42 38 37 38 29C38 19 33 6 24 6Z"
-        fill={`url(#egg_${uid})`}
-        stroke="#0f172a"
-        strokeWidth="2"
-      />
-      {/* Dragon egg scale chevrons & elemental crack */}
-      <path
-        d="M17 20L21 23L25 20L29 23L32 20M15 29L20 32L24 28L28 32L33 29"
-        stroke={pal.crack}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <ellipse cx="19" cy="14" rx="3" ry="5" fill="#ffffff" opacity="0.4" transform="rotate(-14 19 14)" />
-    </svg>
-  );
+      case 'egg_2':
+        // Oceanic Wave-Banded Frost/Aqua Egg with pearl tide ribbons
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg2_${uid}`} cx="35%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#e0f2fe" />
+                <stop offset="52%" stopColor="#38bdf8" />
+                <stop offset="100%" stopColor="#0369a1" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="12" ry="2.6" fill="#020617" fillOpacity="0.45" />
+            <path d="M24 5.5C15 5.5 10 18 10 29C10 37.5 16 42.5 24 42.5C32 42.5 38 37.5 38 29C38 18 33 5.5 24 5.5Z" fill={`url(#egg2_${uid})`} stroke="#0f172a" strokeWidth="2.1" />
+            <path d="M12 24C16 20 20 27 24 24C28 21 32 27 36 23" stroke="#bae6fd" strokeWidth="2.3" strokeLinecap="round" />
+            <path d="M11.5 31.5C16 28 20 34 24 31.5C28 29 32 34 36.5 31" stroke="#0c4a6e" strokeWidth="2" strokeLinecap="round" strokeOpacity="0.6" />
+            <circle cx="24" cy="16" r="3" fill="#e0f2fe" stroke="#0284c7" strokeWidth="1.3" />
+            <ellipse cx="18" cy="13.5" rx="2.7" ry="4.8" fill="#ffffff" opacity="0.52" transform="rotate(-16 18 13.5)" />
+          </svg>
+        );
+
+      case 'egg_3':
+        // Cosmic Nebula Egg with arcane ring & glowing star runes
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg3_${uid}`} cx="36%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#f3e8ff" />
+                <stop offset="48%" stopColor="#a855f7" />
+                <stop offset="100%" stopColor="#3b0764" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="12" ry="2.6" fill="#020617" fillOpacity="0.45" />
+            <path d="M24 5.5C15 5.5 10 18 10 29C10 37.5 16 42.5 24 42.5C32 42.5 38 37.5 38 29C38 18 33 5.5 24 5.5Z" fill={`url(#egg3_${uid})`} stroke="#0f172a" strokeWidth="2.1" />
+            <ellipse cx="24" cy="26" rx="17" ry="4.5" transform="rotate(-16 24 26)" stroke="#fde047" strokeWidth="1.7" strokeOpacity="0.85" />
+            <path d="M24 14L25.6 18.4L30 20L25.6 21.6L24 26L22.4 21.6L18 20L22.4 18.4L24 14Z" fill="#fef08a" />
+            <circle cx="17" cy="33" r="1.5" fill="#e9d5ff" />
+            <circle cx="31" cy="31" r="1.3" fill="#fde047" />
+            <ellipse cx="18.2" cy="13.5" rx="2.6" ry="4.6" fill="#ffffff" opacity="0.45" transform="rotate(-16 18.2 13.5)" />
+          </svg>
+        );
+
+      case 'egg_4':
+        // Emerald Armored Dragon-Scale Egg with overlapping jade scales & ridge crests
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg4_${uid}`} cx="35%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#dcfce7" />
+                <stop offset="48%" stopColor="#22c55e" />
+                <stop offset="100%" stopColor="#14532d" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="12.5" ry="2.7" fill="#020617" fillOpacity="0.5" />
+            <path d="M12 18L8 14L11 24M36 18L40 14L37 24" fill="#15803d" stroke="#052e16" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M24 5C15 5 10 18 10 29C10 37.5 16 42.5 24 42.5C32 42.5 38 37.5 38 29C38 18 33 5 24 5Z" fill={`url(#egg4_${uid})`} stroke="#052e16" strokeWidth="2.1" />
+            <path d="M13 21C16 24 20 24 23 21M25 21C28 24 32 24 35 21M12 28C15.5 31.5 19.5 31.5 23 28M25 28C28.5 31.5 32.5 31.5 36 28M16 35C19.5 38 23.5 38 27 35" stroke="#bbf7d0" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M24 9L27.5 14L24 19L20.5 14L24 9Z" fill="#fde047" stroke="#14532d" strokeWidth="1.2" />
+            <ellipse cx="18" cy="13.5" rx="2.5" ry="4.5" fill="#ffffff" opacity="0.45" transform="rotate(-16 18 13.5)" />
+          </svg>
+        );
+
+      case 'egg_5':
+        // Solar-Ember Magma Egg with molten obsidian armor & corona flare
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg5_${uid}`} cx="38%" cy="30%" r="72%">
+                <stop offset="0%" stopColor="#fef9c3" />
+                <stop offset="45%" stopColor="#fb923c" />
+                <stop offset="100%" stopColor="#9a3412" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="13" ry="2.8" fill="#020617" fillOpacity="0.5" />
+            <path d="M24 3L27 9H21L24 3Z" fill="#fde047" />
+            <path d="M24 6C15 6 10 18 10 29C10 37.5 16 42.5 24 42.5C32 42.5 38 37.5 38 29C38 18 33 6 24 6Z" fill={`url(#egg5_${uid})`} stroke="#431407" strokeWidth="2.1" />
+            <path d="M13 22L20 26L16 34M35 22L28 26L32 34M24 14V25L20 31" stroke="#fef08a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="24" cy="25" r="4" fill="#facc15" stroke="#7c2d12" strokeWidth="1.4" />
+            <ellipse cx="18" cy="13.5" rx="2.6" ry="4.6" fill="#ffffff" opacity="0.45" transform="rotate(-16 18 13.5)" />
+          </svg>
+        );
+
+      case 'egg_6':
+        // Crimson Ruby Dragon Egg with spiked draconic fin crest & faceted ruby heart
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`egg6_${uid}`} cx="36%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#ffe4e6" />
+                <stop offset="48%" stopColor="#f43f5e" />
+                <stop offset="100%" stopColor="#881337" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="13" ry="2.8" fill="#020617" fillOpacity="0.5" />
+            <path d="M9 26L5 21L11 19M39 26L43 21L37 19" fill="#be123c" stroke="#4c0519" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M24 5C15 5 10 18 10 29C10 37.5 16 42.5 24 42.5C32 42.5 38 37.5 38 29C38 18 33 5 24 5Z" fill={`url(#egg6_${uid})`} stroke="#4c0519" strokeWidth="2.1" />
+            <path d="M11.5 29H36.5" stroke="#fecdd3" strokeWidth="1.6" strokeOpacity="0.65" />
+            <path d="M24 17L30 25L24 34L18 25L24 17Z" fill="#9f1239" stroke="#fde047" strokeWidth="1.6" strokeLinejoin="round" />
+            <path d="M24 19L27.5 25L24 31L20.5 25L24 19Z" fill="#fb7185" />
+            <ellipse cx="18" cy="13" rx="2.5" ry="4.5" fill="#ffffff" opacity="0.48" transform="rotate(-16 18 13)" />
+          </svg>
+        );
+
+      case 'egg_7':
+        // Prismatic Celestial Crystal Egg with diamond facets & golden halo crown
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <linearGradient id={`egg7_${uid}`} x1="10" y1="6" x2="38" y2="42" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#ecfeff" />
+                <stop offset="45%" stopColor="#38bdf8" />
+                <stop offset="100%" stopColor="#4338ca" />
+              </linearGradient>
+            </defs>
+            <ellipse cx="24" cy="43" rx="13.5" ry="2.8" fill="#020617" fillOpacity="0.52" />
+            <path d="M15 9L24 4L33 9" stroke="#fde047" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M24 6L35 16L38 29L31 41.5H17L10 29L13 16L24 6Z" fill={`url(#egg7_${uid})`} stroke="#1e1b4b" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M24 6V41.5M10 29H38M13 16L24 22L35 16M17 41.5L24 29L31 41.5" stroke="#e0f2fe" strokeOpacity="0.7" strokeWidth="1.3" />
+            <circle cx="24" cy="23" r="3.4" fill="#fef08a" stroke="#312e81" strokeWidth="1.2" />
+            <ellipse cx="18" cy="13.5" rx="2.3" ry="4" fill="#ffffff" opacity="0.55" transform="rotate(-16 18 13.5)" />
+          </svg>
+        );
+
+      case 'egg_love':
+      default:
+        // Sovereign Heart Mythic Dragon Egg with golden dragon wings & radiant ruby heart
+        return (
+          <svg viewBox="0 0 48 48" className={className} fill="none">
+            <defs>
+              <radialGradient id={`eggLove_${uid}`} cx="36%" cy="28%" r="74%">
+                <stop offset="0%" stopColor="#fdf2f8" />
+                <stop offset="45%" stopColor="#ec4899" />
+                <stop offset="100%" stopColor="#831843" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="24" cy="43.5" rx="14" ry="2.8" fill="#020617" fillOpacity="0.55" />
+            {/* Golden Side Wings */}
+            <path d="M12 24C6 21 4 15 6 11C10 13 13 16 14 21Z" fill="#facc15" stroke="#78350f" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M36 24C42 21 44 15 42 11C38 13 35 16 34 21Z" fill="#facc15" stroke="#78350f" strokeWidth="1.5" strokeLinejoin="round" />
+            {/* Sovereign Egg Shell */}
+            <path d="M24 5.5C15 5.5 10.5 18 10.5 29C10.5 37.5 16 42.5 24 42.5C32 42.5 37.5 37.5 37.5 29C37.5 18 33 5.5 24 5.5Z" fill={`url(#eggLove_${uid})`} stroke="#500724" strokeWidth="2.1" />
+            {/* Crown Crest */}
+            <path d="M18 9.5L21 5L24 8L27 5L30 9.5" stroke="#fde047" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            {/* Radiant Heart Gem */}
+            <path d="M24 33C24 33 16.5 28.2 16.5 23.2C16.5 20.5 18.6 18.8 21 18.8C22.6 18.8 23.6 19.7 24 20.7C24.4 19.7 25.4 18.8 27 18.8C29.4 18.8 31.5 20.5 31.5 23.2C31.5 28.2 24 33 24 33Z" fill="#fef08a" stroke="#9d174d" strokeWidth="1.5" strokeLinejoin="round" />
+            <ellipse cx="18" cy="14" rx="2.4" ry="4.2" fill="#ffffff" opacity="0.52" transform="rotate(-16 18 14)" />
+          </svg>
+        );
+    }
+  };
+
+  return renderDragonEgg();
 };
 
 export const GodIllustration: React.FC<{

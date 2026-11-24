@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Shield,
 } from 'lucide-react';
-import { Duck, DuckSkinId, GameState } from '../../types/game';
+import { Duck, DuckSkinId, GameState, PlayerLeaderboardEntry } from '../../types/game';
 import {
   DUCK_SKILLS,
   LEAGUE_TIERS,
@@ -29,6 +29,8 @@ import { soundFX } from '../../utils/sound';
 
 interface ArenaTabProps {
   state: GameState;
+  leaderboardPlayers?: PlayerLeaderboardEntry[];
+  currentUid?: string | null;
   onSpendArenaEntry: (cost: number) => boolean;
   onRefundArenaEntry?: (amount: number) => void;
   onBattleResult: (
@@ -57,10 +59,13 @@ const ARENA_RIVALS = RIVALS_CATALOG.map((rv, idx) => ({
   leaguePts: [25, 40, 55, 75][idx] ?? 75,
   visualLevel: Math.min(5, 2 + idx),
   visualCustomLevel: idx >= 2 ? 7 : 3,
+  isRealPlayer: false,
 }));
 
 export const ArenaTab: React.FC<ArenaTabProps> = ({
   state,
+  leaderboardPlayers = [],
+  currentUid = null,
   onSpendArenaEntry,
   onRefundArenaEntry,
   onBattleResult,
@@ -102,7 +107,31 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
   const duckSkill = DUCK_SKILLS[activeDuck.skin];
   const leagueMeta = getLeagueMeta(state.league.points);
   const nextLeague = LEAGUE_TIERS[LEAGUE_TIERS.findIndex((t) => t.tier === leagueMeta.tier) + 1];
-  const rival = ARENA_RIVALS[selectedRivalIdx] ?? ARENA_RIVALS[0];
+
+  const realPlayerRivals = leaderboardPlayers
+    .filter((p) => p.uid !== currentUid)
+    .slice(0, 4)
+    .map((p) => {
+      const scaledHp = Math.min(1800, Math.max(240, Math.round(220 + p.powerRating * 0.14)));
+      const scaledAtk = Math.min(95, Math.max(18, Math.round(14 + Math.sqrt(p.powerRating) * 0.45)));
+      return {
+        id: `real_${p.uid}`,
+        name: p.username,
+        skin: (p.activeDragonSkin as DuckSkinId) || 'aqua',
+        maxHp: scaledHp,
+        attackPower: scaledAtk,
+        rewardCorn: Math.min(480, 140 + p.activeDragonLevel * 45),
+        rewardStars: Math.min(6, 2 + Math.floor(p.activeDragonLevel / 2)),
+        medalReward: 3,
+        leaguePts: 50,
+        visualLevel: Math.max(1, Math.min(5, p.activeDragonLevel || 1)),
+        visualCustomLevel: 4,
+        isRealPlayer: true,
+      };
+    });
+
+  const combinedRivals = [...ARENA_RIVALS, ...realPlayerRivals];
+  const rival = combinedRivals[selectedRivalIdx] ?? combinedRivals[0];
   const activeEvent = WEEKEND_EVENTS[state.weekendEventIndex % WEEKEND_EVENTS.length];
   const eventMods = resolveEventModifiers(activeEvent);
 
@@ -548,8 +577,11 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [racePhase, activeDuck.skillLevel, activeDuck.gear, activeDuck.skin, onRaceResult]);
 
+  const dragonsAnimated = state.dragonMotionEnabled ?? true;
+
   return (
-    <div className="h-full flex flex-col max-w-4xl mx-auto px-3 sm:px-5 py-3 overflow-y-auto space-y-3">
+    <div className="h-full w-full overflow-y-auto overscroll-y-contain touch-pan-y">
+      <div className="max-w-4xl mx-auto px-3 sm:px-5 py-3 pb-8 space-y-3">
       {/* Rotating Weekend Event Banner */}
       <div className="rounded-2xl px-3.5 py-2.5 bg-gradient-to-l from-amber-500/20 via-purple-900/25 to-[#181b24] border border-amber-400/40 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-start gap-2 min-w-0">
@@ -677,6 +709,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                     aura={activeDuck.aura}
                     staked={activeDuck.staked}
                     showEvolutionEffects={true}
+                    motionEnabled={dragonsAnimated}
                     className="w-16 h-16"
                     mood="battle"
                   />
@@ -696,30 +729,42 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
               </div>
 
               <div>
-                <div className="text-xs font-bold text-slate-400 mb-2">اختر منافسك في الحلبة:</div>
+                <div className="text-xs font-bold text-slate-400 mb-2">
+                  اختر منافسك في الحلبة {realPlayerRivals.length > 0 ? '(يشمل لاعبي تيليجرام الحقيقيين!)' : ''}:
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {ARENA_RIVALS.map((rv, idx) => (
+                  {combinedRivals.map((rv, idx) => (
                     <button
                       key={rv.id}
                       onClick={() => {
                         soundFX.playTabSwitch();
                         setSelectedRivalIdx(idx);
                       }}
-                      className={`rounded-2xl p-2.5 border text-center cursor-pointer transition-all ${
+                      className={`rounded-2xl p-2.5 border text-center cursor-pointer transition-all relative ${
                         selectedRivalIdx === idx
                           ? 'bg-rose-500/15 border-rose-400'
-                          : 'bg-slate-900/70 border-slate-800 hover:border-slate-600'
+                          : rv.isRealPlayer
+                            ? 'bg-sky-500/10 border-sky-500/35 hover:border-sky-400'
+                            : 'bg-slate-900/70 border-slate-800 hover:border-slate-600'
                       }`}
                     >
+                      {rv.isRealPlayer && (
+                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-sky-500/20 text-[9px] font-black text-sky-300">
+                          لاعب
+                        </span>
+                      )}
                       <DragonIllustration
                         skin={rv.skin}
                         level={rv.visualLevel}
                         customLevel={rv.visualCustomLevel}
                         showEvolutionEffects={true}
+                        motionEnabled={dragonsAnimated}
                         className="w-14 h-14 mx-auto"
                         mood="battle"
                       />
-                      <div className="text-[11px] font-black text-white truncate mt-1">{rv.name}</div>
+                      <div className="text-[11px] font-black text-white truncate mt-1">
+                        {rv.name}
+                      </div>
                       <div className="text-[10px] font-mono-num text-emerald-400">
                         +{Math.round(rv.rewardCorn * eventMods.arenaEnergyMult).toLocaleString()} طاقة
                       </div>
@@ -824,6 +869,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                     aura={activeDuck.aura}
                     staked={activeDuck.staked}
                     showEvolutionEffects={true}
+                    motionEnabled={dragonsAnimated}
                     className="w-28 h-28 mx-auto"
                     mood="battle"
                   />
@@ -845,6 +891,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                     level={rival.visualLevel}
                     customLevel={rival.visualCustomLevel}
                     showEvolutionEffects={true}
+                    motionEnabled={dragonsAnimated}
                     className="w-28 h-28 mx-auto scale-x-[-1]"
                     mood="battle"
                   />
@@ -1025,6 +1072,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                         gear={lane.isYou ? activeDuck.gear : undefined}
                         aura={lane.isYou ? activeDuck.aura : undefined}
                         showEvolutionEffects={lane.isYou}
+                        motionEnabled={dragonsAnimated}
                         className="w-8 h-8"
                       />
                     </div>
@@ -1132,30 +1180,43 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            <div className="text-xs font-bold text-slate-400">تصنيف الدوري الحالي:</div>
-            {[
-              { name: 'SOLAFEIFEI', pts: 1520, tier: 'أسطوري' },
-              { name: 'ZLOYPHILIPP', pts: 980, tier: 'ماسي' },
-              { name: 'DRAGON_MAXIM', pts: 540, tier: 'ذهبي' },
-              { name: state.username, pts: state.league.points, tier: leagueMeta.nameAr, isYou: true },
-              { name: 'DRACO_SCOUT', pts: 120, tier: 'برونزي' },
-            ]
-              .sort((a, b) => b.pts - a.pts)
+            <div className="text-xs font-bold text-slate-400">
+              {leaderboardPlayers.length > 0 ? 'التصنيف العالمي الحي للاعبي تيليجرام:' : 'تصنيف الدوري الحالي:'}
+            </div>
+            {(leaderboardPlayers.length > 0
+              ? leaderboardPlayers.map((p) => ({
+                  id: p.uid,
+                  name: p.username,
+                  pts: p.leaguePoints,
+                  power: p.powerRating,
+                  tier: getLeagueMeta(p.leaguePoints).nameAr,
+                  isYou: p.uid === currentUid,
+                }))
+              : [
+                  { id: 'n1', name: 'SOLAFEIFEI', pts: 1520, power: 18500, tier: 'أسطوري', isYou: false },
+                  { id: 'n2', name: 'ZLOYPHILIPP', pts: 980, power: 12400, tier: 'ماسي', isYou: false },
+                  { id: 'n3', name: 'DRAGON_MAXIM', pts: 540, power: 7900, tier: 'ذهبي', isYou: false },
+                  { id: 'you', name: state.username, pts: state.league.points, power: combatStats.totalPowerScore, tier: leagueMeta.nameAr, isYou: true },
+                  { id: 'n4', name: 'DRACO_SCOUT', pts: 120, power: 2100, tier: 'برونزي', isYou: false },
+                ]
+            )
+              .sort((a, b) => b.pts - a.pts || b.power - a.power)
               .map((row, idx) => (
                 <div
-                  key={row.name}
+                  key={row.id}
                   className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs ${
                     row.isYou
                       ? 'bg-amber-400/20 border-amber-400 text-white font-black'
                       : 'bg-slate-900/70 border-slate-800 text-slate-300'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono-num text-amber-400 w-5">#{idx + 1}</span>
-                    <span>{row.name}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono-num text-amber-400 w-5 shrink-0">#{idx + 1}</span>
+                    <span className="truncate">{row.name}</span>
                   </div>
-                  <div className="flex items-center gap-3 font-mono-num">
+                  <div className="flex items-center gap-3 font-mono-num shrink-0">
                     <span className="text-[11px] text-slate-400">{row.tier}</span>
+                    <span className="text-sky-300 text-[11px]">{row.power.toLocaleString()}⚡</span>
                     <span className="text-emerald-400 font-bold">{row.pts}</span>
                   </div>
                 </div>
@@ -1163,6 +1224,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

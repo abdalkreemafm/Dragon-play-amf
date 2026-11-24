@@ -1,0 +1,337 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isSignedInRead() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAllianceMember(allianceId) {
+      return isSignedIn()
+        && isValidId(allianceId)
+        && exists(/databases/$(database)/documents/alliances/$(allianceId)/members/$(request.auth.uid));
+    }
+
+    function isValidEncryptedMap(enc) {
+      return enc is map
+        && enc.keys().hasAll(['alg', 'iv', 'ciphertext'])
+        && enc.keys().hasOnly(['alg', 'iv', 'ciphertext'])
+        && enc.alg == 'AES-256-GCM'
+        && enc.iv is string && enc.iv.size() >= 12 && enc.iv.size() <= 64
+        && enc.ciphertext is string && enc.ciphertext.size() >= 16 && enc.ciphertext.size() <= 200000;
+    }
+
+    function isValidPlayerProfile(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'username', 'powerRating', 'leaguePoints', 'dmdTotal', 'dragonCount', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'username', 'avatarUrl', 'telegramIdHash', 'telegramVerified',
+          'powerRating', 'leaguePoints', 'dmdTotal', 'dragonCount', 'allianceId',
+          'activeDragonName', 'activeDragonSkin', 'activeDragonRarity', 'activeDragonLevel', 'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == uid
+        && isValidId(data.uid)
+        && data.username is string && data.username.size() >= 1 && data.username.size() <= 32
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 256))
+        && (!('telegramIdHash' in data) || (data.telegramIdHash is string && data.telegramIdHash.size() == 64 && data.telegramIdHash.matches('^[a-f0-9]{64}$')))
+        && (!('telegramVerified' in data) || data.telegramVerified is bool)
+        && data.powerRating is int && data.powerRating >= 0 && data.powerRating <= 10000000
+        && data.leaguePoints is int && data.leaguePoints >= 0 && data.leaguePoints <= 10000000
+        && data.dmdTotal is number && data.dmdTotal >= 0 && data.dmdTotal <= 10000000
+        && data.dragonCount is int && data.dragonCount >= 1 && data.dragonCount <= 200
+        && (!('allianceId' in data) || (data.allianceId is string && data.allianceId.size() <= 64))
+        && (!('activeDragonName' in data) || (data.activeDragonName is string && data.activeDragonName.size() <= 48))
+        && (!('activeDragonSkin' in data) || (data.activeDragonSkin is string && data.activeDragonSkin.size() <= 24))
+        && (!('activeDragonRarity' in data) || data.activeDragonRarity in ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'])
+        && (!('activeDragonLevel' in data) || (data.activeDragonLevel is int && data.activeDragonLevel >= 1 && data.activeDragonLevel <= 5))
+        && data.updatedAt == request.time;
+    }
+
+    function isValidPlayerSave(data, uid) {
+      return data.keys().hasAll(['uid', 'schemaVersion', 'encryptedSensitive', 'gameStateMap', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'schemaVersion', 'telegramIdHash', 'encryptedSensitive', 'gameStateMap', 'updatedAt'])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == uid
+        && isValidId(data.uid)
+        && data.schemaVersion is int && data.schemaVersion >= 1 && data.schemaVersion <= 20
+        && (!('telegramIdHash' in data) || (data.telegramIdHash is string && data.telegramIdHash.size() == 64 && data.telegramIdHash.matches('^[a-f0-9]{64}$')))
+        && isValidEncryptedMap(data.encryptedSensitive)
+        && data.gameStateMap is map
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAuctionDragon(dragon) {
+      return dragon is map
+        && dragon.keys().hasAll(['id', 'name', 'skin', 'rarity', 'level'])
+        && dragon.keys().hasOnly([
+          'id', 'name', 'skin', 'rarity', 'level', 'customLevel', 'sizeTier',
+          'gear', 'aura', 'skillLevel', 'trainingLevel', 'powerRating'
+        ])
+        && dragon.id is string && dragon.id.size() >= 1 && dragon.id.size() <= 64
+        && dragon.name is string && dragon.name.size() >= 1 && dragon.name.size() <= 48
+        && dragon.skin is string && dragon.skin.size() >= 1 && dragon.skin.size() <= 24
+        && dragon.rarity in ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY']
+        && dragon.level is int && dragon.level >= 1 && dragon.level <= 5
+        && (!('customLevel' in dragon) || (dragon.customLevel is int && dragon.customLevel >= 0 && dragon.customLevel <= 10))
+        && (!('sizeTier' in dragon) || dragon.sizeTier in ['NORMAL', 'XL', 'XXL'])
+        && (!('gear' in dragon) || (dragon.gear is string && dragon.gear.size() <= 24))
+        && (!('aura' in dragon) || (dragon.aura is string && dragon.aura.size() <= 24))
+        && (!('skillLevel' in dragon) || (dragon.skillLevel is int && dragon.skillLevel >= 1 && dragon.skillLevel <= 10))
+        && (!('trainingLevel' in dragon) || (dragon.trainingLevel is int && dragon.trainingLevel >= 0 && dragon.trainingLevel <= 1000))
+        && (!('powerRating' in dragon) || (dragon.powerRating is int && dragon.powerRating >= 1 && dragon.powerRating <= 1000000));
+    }
+
+    function isValidDragonAuction(data, auctionId) {
+      return data.keys().hasAll([
+          'id', 'sellerUid', 'sellerName', 'dragon', 'rarity', 'startCornPrice',
+          'currentCornPrice', 'buyNowStars', 'highestBidderUid', 'highestBidderName',
+          'bidCount', 'status', 'winnerUid', 'settlementType', 'sellerClaimed',
+          'buyerClaimed', 'endsAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'sellerUid', 'sellerName', 'dragon', 'rarity',
+          'startCornPrice', 'currentCornPrice', 'buyNowStars', 'highestBidderUid',
+          'highestBidderName', 'bidCount', 'status', 'winnerUid', 'settlementType',
+          'sellerClaimed', 'buyerClaimed', 'endsAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == auctionId && isValidId(data.id)
+        && data.sellerUid is string && isValidId(data.sellerUid)
+        && data.sellerName is string && data.sellerName.size() >= 1 && data.sellerName.size() <= 32
+        && isValidAuctionDragon(data.dragon)
+        && data.rarity in ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY']
+        && data.startCornPrice is int && data.startCornPrice >= 200 && data.startCornPrice <= 5000000
+        && data.currentCornPrice is int && data.currentCornPrice >= data.startCornPrice && data.currentCornPrice <= 10000000
+        && data.buyNowStars is int && data.buyNowStars >= 5 && data.buyNowStars <= 50000
+        && data.highestBidderUid is string && data.highestBidderUid.size() <= 128
+        && data.highestBidderName is string && data.highestBidderName.size() <= 32
+        && data.bidCount is int && data.bidCount >= 0 && data.bidCount <= 10000
+        && data.status in ['ACTIVE', 'SOLD', 'CANCELLED', 'CLAIMED']
+        && data.winnerUid is string && data.winnerUid.size() <= 128
+        && data.settlementType in ['NONE', 'BID', 'BUY_NOW', 'EXPIRED']
+        && data.sellerClaimed is bool
+        && data.buyerClaimed is bool
+        && data.endsAtMs is int && data.endsAtMs > 0
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAllianceMessage(data, allianceId, messageId) {
+      return data.keys().hasAll(['id', 'allianceId', 'senderUid', 'senderName', 'text', 'createdAt'])
+        && data.keys().hasOnly(['id', 'allianceId', 'senderUid', 'senderName', 'text', 'createdAt'])
+        && data.id is string && data.id == messageId && isValidId(data.id)
+        && data.allianceId is string && data.allianceId == allianceId && isValidId(data.allianceId)
+        && data.senderUid is string && data.senderUid == request.auth.uid && isValidId(data.senderUid)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 32
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 280
+        && data.createdAt == request.time;
+    }
+
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Layer 1 & 5: Player reads & writes ONLY their own profile; never reads other players; never deletes
+    match /playerProfiles/{uid} {
+      allow get: if isOwner(uid) && isValidId(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) && isValidId(uid) && isValidPlayerProfile(incoming(), uid);
+      allow update: if isOwner(uid) && isValidId(uid) && isValidPlayerProfile(incoming(), uid)
+        && incoming().uid == existing().uid
+        && (!('telegramIdHash' in existing()) || ('telegramIdHash' in incoming() && incoming().telegramIdHash == existing().telegramIdHash))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'username', 'avatarUrl', 'telegramIdHash', 'telegramVerified',
+          'powerRating', 'leaguePoints', 'dmdTotal', 'dragonCount', 'allianceId',
+          'activeDragonName', 'activeDragonSkin', 'activeDragonRarity', 'activeDragonLevel', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Layer 1 & 5: Owner-only encrypted cloud saves; never readable by others; never deletable
+    match /playerSaves/{uid} {
+      allow get: if isOwner(uid) && isValidId(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) && isValidId(uid) && isValidPlayerSave(incoming(), uid);
+      allow update: if isOwner(uid) && isValidId(uid) && isValidPlayerSave(incoming(), uid)
+        && incoming().uid == existing().uid
+        && (!('telegramIdHash' in existing()) || ('telegramIdHash' in incoming() && incoming().telegramIdHash == existing().telegramIdHash))
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'schemaVersion', 'telegramIdHash', 'encryptedSensitive', 'gameStateMap', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Layer 1 & 5: Leaderboard is readable by signed-in users, writable ONLY by Server / Cloud Functions
+    match /leaderboard/{uid} {
+      allow get: if isSignedInRead() && isValidId(uid);
+      allow list: if isSignedInRead() && resource.data.powerRating is int && resource.data.powerRating >= 0;
+      allow create, update, delete: if false;
+    }
+
+    // Layer 1 & 5: Multiplayer Dragon Auctions (zero Telegram handle PII, never deletable)
+    match /dragonAuctions/{auctionId} {
+      allow get: if isSignedInRead() && isValidId(auctionId);
+      allow list: if isSignedInRead() && resource.data.status in ['ACTIVE', 'SOLD', 'CANCELLED', 'CLAIMED'];
+      allow create: if isSignedIn() && isValidId(auctionId)
+        && isValidDragonAuction(incoming(), auctionId)
+        && incoming().sellerUid == request.auth.uid
+        && incoming().status == 'ACTIVE'
+        && incoming().bidCount == 0
+        && incoming().highestBidderUid == ''
+        && incoming().winnerUid == ''
+        && incoming().settlementType == 'NONE'
+        && incoming().sellerClaimed == false
+        && incoming().buyerClaimed == false
+        && incoming().createdAt == request.time;
+
+      allow update: if isSignedIn() && isValidId(auctionId)
+        && isValidDragonAuction(incoming(), auctionId)
+        && incoming().id == existing().id
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().dragon == existing().dragon
+        && incoming().startCornPrice == existing().startCornPrice
+        && incoming().buyNowStars == existing().buyNowStars
+        && existing().status != 'CANCELLED'
+        && existing().status != 'CLAIMED'
+        && (
+          // Action 1: Outbid on ACTIVE auction (non-seller only)
+          (
+            existing().status == 'ACTIVE'
+            && request.time.toMillis() <= existing().endsAtMs + 5000
+            && incoming().status == 'ACTIVE'
+            && request.auth.uid != existing().sellerUid
+            && incoming().currentCornPrice >= existing().currentCornPrice + 50
+            && incoming().highestBidderUid == request.auth.uid
+            && incoming().bidCount == existing().bidCount + 1
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'currentCornPrice', 'highestBidderUid', 'highestBidderName', 'bidCount', 'endsAtMs', 'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Buy Now with Stars on ACTIVE auction (non-seller only)
+          (
+            existing().status == 'ACTIVE'
+            && incoming().status == 'SOLD'
+            && request.auth.uid != existing().sellerUid
+            && incoming().winnerUid == request.auth.uid
+            && incoming().settlementType == 'BUY_NOW'
+            && incoming().buyerClaimed == true
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'winnerUid', 'settlementType', 'buyerClaimed', 'highestBidderUid', 'highestBidderName', 'updatedAt'
+            ])
+          )
+          ||
+          // Action 3: Seller cancels unsold auction with 0 bids
+          (
+            existing().status == 'ACTIVE'
+            && existing().bidCount == 0
+            && request.auth.uid == existing().sellerUid
+            && incoming().status == 'CANCELLED'
+            && incoming().settlementType == 'EXPIRED'
+            && incoming().sellerClaimed == true
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'settlementType', 'sellerClaimed', 'updatedAt'
+            ])
+          )
+          ||
+          // Action 4: Winner claims ended bid auction
+          (
+            existing().status in ['ACTIVE', 'SOLD']
+            && existing().bidCount > 0
+            && request.time.toMillis() >= existing().endsAtMs
+            && request.auth.uid == existing().highestBidderUid
+            && existing().buyerClaimed == false
+            && incoming().buyerClaimed == true
+            && incoming().winnerUid == existing().highestBidderUid
+            && incoming().settlementType == 'BID'
+            && incoming().status == (existing().sellerClaimed ? 'CLAIMED' : 'SOLD')
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'winnerUid', 'settlementType', 'buyerClaimed', 'updatedAt'
+            ])
+          )
+          ||
+          // Action 5: Seller claims net proceeds after BUY_NOW or ended winning bid
+          (
+            existing().status in ['ACTIVE', 'SOLD']
+            && existing().sellerClaimed == false
+            && request.auth.uid == existing().sellerUid
+            && (
+              existing().settlementType == 'BUY_NOW'
+              || (existing().bidCount > 0 && request.time.toMillis() >= existing().endsAtMs)
+            )
+            && incoming().sellerClaimed == true
+            && incoming().status == (existing().buyerClaimed ? 'CLAIMED' : 'SOLD')
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'winnerUid', 'settlementType', 'sellerClaimed', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // Layer 1 & 5: Alliance member reads ONLY their own alliance; non-members blocked; Server writes only; never deletable
+    match /alliances/{allianceId} {
+      allow get: if isAllianceMember(allianceId);
+      allow list: if false;
+      allow create, update, delete: if false;
+
+      match /members/{memberUid} {
+        allow get: if isAllianceMember(allianceId) && isValidId(memberUid);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      // Layer 1: Alliance treasury writable ONLY by Server / Cloud Functions; readable by members only
+      match /treasury/{treasuryId} {
+        allow get: if isAllianceMember(allianceId) && isValidId(treasuryId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      // Layer 5: Immutable Treasury Audit Log (who, when, amount); Server / Cloud Functions writes only
+      match /treasuryAuditLogs/{logId} {
+        allow get: if isAllianceMember(allianceId) && isValidId(logId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      // Member-only Alliance Chat (Master Gate checks active alliance membership)
+      match /messages/{messageId} {
+        allow get: if isAllianceMember(allianceId) && isValidId(messageId);
+        allow list: if isSignedIn() && resource.data.allianceId == allianceId && resource.data.senderUid is string
+          && isAllianceMember(allianceId);
+        allow create: if isAllianceMember(allianceId) && isValidId(messageId)
+          && isValidAllianceMessage(incoming(), allianceId, messageId);
+        allow update, delete: if false;
+      }
+    }
+  }
+}

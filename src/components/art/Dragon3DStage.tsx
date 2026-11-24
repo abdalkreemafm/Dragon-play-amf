@@ -15,6 +15,7 @@ export interface Dragon3DStageProps {
   gear?: DuckGearId;
   aura?: DuckAuraId;
   isFever?: boolean;
+  motionEnabled?: boolean;
   feedPulseNonce: number;
   levelBurstNonce: number;
   onTapStage: (clientX: number, clientY: number) => void;
@@ -330,12 +331,12 @@ function createDragonScaleTextures(texSize = 512): {
         hCtx.lineWidth = Math.max(1.8, texSize * 0.0048);
         hCtx.stroke();
 
-        // Matte-satin roughness contrast: avoid mirror-bright spikes while keeping deep matte crevices
+        // Matte-satin roughness contrast: avoid mirror-bright micro-spikes while keeping deep matte crevices
         traceScale(rCtx, 0.92);
-        const rVal = 152 + ((r * 7 + c * 11) % 24);
+        const rVal = 204 + ((r * 7 + c * 11) % 22);
         rCtx.fillStyle = `rgb(${rVal}, ${rVal}, ${rVal})`;
         rCtx.fill();
-        rCtx.strokeStyle = 'rgb(236,236,236)';
+        rCtx.strokeStyle = 'rgb(244,244,244)';
         rCtx.lineWidth = Math.max(1.8, texSize * 0.0048);
         rCtx.stroke();
       }
@@ -1192,7 +1193,7 @@ function buildWingMembraneGeometry(side: -1 | 1): THREE.BufferGeometry {
   return ensureGeometryNormalsAndTangents(geo);
 }
 
-export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
+const Dragon3DStageInner: React.FC<Dragon3DStageProps> = ({
   skin,
   rarity,
   level,
@@ -1201,6 +1202,7 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
   gear = 'none',
   aura = 'auto',
   isFever = false,
+  motionEnabled = true,
   feedPulseNonce,
   levelBurstNonce,
   onTapStage,
@@ -1208,13 +1210,18 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [webglFailed, setWebglFailed] = useState(false);
 
-  const propsRef = useRef({ skin, rarity, level, customLevel, sizeTier, gear, aura, isFever });
-  propsRef.current = { skin, rarity, level, customLevel, sizeTier, gear, aura, isFever };
+  const propsRef = useRef({ skin, rarity, level, customLevel, sizeTier, gear, aura, isFever, motionEnabled });
+  propsRef.current = { skin, rarity, level, customLevel, sizeTier, gear, aura, isFever, motionEnabled };
+
+  const wakeTickRef = useRef<(() => void) | null>(null);
+  const renderStaticRef = useRef<(() => void) | null>(null);
 
   const pulseStateRef = useRef({
     roarImpulse: 0,
+    feedJoy: 0,
     burstEnergy: 0,
     cameraShake: 0,
+    wakeRequested: false,
     dragYaw: -0.48,
     targetYaw: -0.48,
     dragPitch: 0,
@@ -1238,10 +1245,14 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     if (feedPulseNonce !== lastFeedNonceRef.current) {
       lastFeedNonceRef.current = feedPulseNonce;
       const p = pulseStateRef.current;
-      p.roarImpulse = 1.0;
-      p.burstEnergy = Math.min(2.4, p.burstEnergy + 0.95);
-      p.cameraShake = Math.max(p.cameraShake, 0.032);
-      soundFX.playDragonRoar(0.88, p.dragYaw);
+      // Smooth gradual feeding response — blends naturally without freezing movement
+      p.feedJoy = Math.min(1, p.feedJoy + 0.24);
+      p.burstEnergy = Math.min(1.8, p.burstEnergy + 0.32);
+      p.wakeRequested = true;
+      soundFX.playDragonRoar(0.55, p.dragYaw);
+      if (!propsRef.current.motionEnabled) {
+        renderStaticRef.current?.();
+      }
     }
   }, [feedPulseNonce]);
 
@@ -1249,12 +1260,25 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     if (levelBurstNonce !== lastLevelNonceRef.current) {
       lastLevelNonceRef.current = levelBurstNonce;
       const p = pulseStateRef.current;
-      p.roarImpulse = 1.45;
-      p.burstEnergy = 3.0;
-      p.cameraShake = 0.075;
+      p.roarImpulse = 1.35;
+      p.feedJoy = 1.0;
+      p.burstEnergy = 2.8;
+      p.cameraShake = 0.065;
+      p.wakeRequested = true;
       soundFX.playDragonRoar(1.25, p.dragYaw);
+      if (!propsRef.current.motionEnabled) {
+        renderStaticRef.current?.();
+      }
     }
   }, [levelBurstNonce]);
+
+  useEffect(() => {
+    if (motionEnabled) {
+      wakeTickRef.current?.();
+    } else {
+      renderStaticRef.current?.();
+    }
+  }, [motionEnabled, skin, rarity, level, customLevel, sizeTier, gear, aura, isFever]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -1289,7 +1313,7 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     renderer.toneMapping = THREE.AgXToneMapping;
     renderer.toneMappingExposure = 1.16;
     renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(tier === 'HIGH' ? Math.min(dpr, 1.85) : tier === 'MEDIUM' ? Math.min(dpr, 1.25) : 1);
+    renderer.setPixelRatio(tier === 'HIGH' ? Math.min(dpr, 1.5) : tier === 'MEDIUM' ? Math.min(dpr, 1.15) : 1);
     renderer.setSize(width, height, false);
     renderer.shadowMap.enabled = tier === 'HIGH';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1439,13 +1463,27 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       contrast = 1.22,
       rimStrength = 0.32
     ) => {
-      mat.customProgramCacheKey = () => `dragon-pbr-v4-${saturation}-${contrast}-${rimStrength}`;
+      mat.customProgramCacheKey = () => `dragon-pbr-v5-${saturation}-${contrast}-${rimStrength}`;
       mat.onBeforeCompile = (shader) => {
         shader.uniforms.uRimColor = dragonShaderUniforms.uRimColor;
+
+        shader.vertexShader =
+          `
+          varying vec3 vMacroNormal;
+          ` + shader.vertexShader;
+
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <normal_vertex>',
+          `
+          #include <normal_vertex>
+          vMacroNormal = normalize(transformedNormal);
+          `
+        );
 
         shader.fragmentShader =
           `
           uniform vec3 uRimColor;
+          varying vec3 vMacroNormal;
           ` + shader.fragmentShader;
 
         // 1. Boost chromatic saturation, contrast S-curve, and enforce opaque alpha = 1.0
@@ -1466,27 +1504,37 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           '#include <roughnessmap_fragment>',
           `
           #include <roughnessmap_fragment>
-          float cavityDarken = mix(1.04, 0.76, clamp((roughnessFactor - 0.45) * 1.4, 0.0, 1.0));
+          float cavityDarken = mix(1.02, 0.78, clamp((roughnessFactor - 0.55) * 1.4, 0.0, 1.0));
           diffuseColor.rgb *= cavityDarken;
           `
         );
 
-        // 3. Smooth Silhouette Rim Light using nonPerturbedNormal (DoubleSide-safe & zero micro-scale twinkling!)
+        // 3. Smooth Silhouette Rim Light using interpolated vertex vMacroNormal (zero white-spot twinkling!)
         shader.fragmentShader = shader.fragmentShader.replace(
           '#include <emissivemap_fragment>',
           `
           #include <emissivemap_fragment>
           vec3 rimViewDir = normalize(vViewPosition);
-          vec3 macroNormal = normalize(nonPerturbedNormal);
+          vec3 macroNormal = normalize(vMacroNormal) * (gl_FrontFacing ? 1.0 : -1.0);
           float rimNdotV = clamp(dot(macroNormal, rimViewDir), 0.0, 1.0);
-          float rimFresnel = pow(1.0 - rimNdotV, 4.2);
+          float rimFresnel = pow(1.0 - rimNdotV, 4.4);
           float rimDirGate = smoothstep(-0.15, 0.85, macroNormal.y * 0.65 - macroNormal.x * 0.35 - macroNormal.z * 0.25);
-          vec3 tintedRim = mix(diffuseColor.rgb * 1.45, uRimColor, 0.42);
+          vec3 tintedRim = mix(diffuseColor.rgb * 1.4, uRimColor, 0.38);
           totalEmissiveRadiance += tintedRim * (rimFresnel * (0.28 + 0.72 * rimDirGate)) * ${rimStrength.toFixed(2)};
           `
         );
 
-        // 4. Hard opacity lock on final shaded fragment
+        // 4. Clamp direct & indirect GGX specular highlights so motion never flashes white dots
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <lights_fragment_end>',
+          `
+          #include <lights_fragment_end>
+          reflectedLight.directSpecular = min(reflectedLight.directSpecular, diffuseColor.rgb * 0.34 + vec3(0.05));
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, diffuseColor.rgb * 0.26 + vec3(0.04));
+          `
+        );
+
+        // 5. Hard opacity lock on final shaded fragment
         shader.fragmentShader = shader.fragmentShader.replace(
           '#include <opaque_fragment>',
           `
@@ -1504,12 +1552,13 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           color: 0x36586b,
           map: scaleTexSet.albedoTint,
           normalMap: scaleTexSet.normalMap,
-          normalScale: new THREE.Vector2(1.05, 1.05),
+          normalScale: new THREE.Vector2(0.88, 0.88),
           roughnessMap: scaleTexSet.roughnessMap,
-          roughness: 0.76,
-          metalness: 0.14,
+          roughness: 0.85,
+          metalness: 0.12,
+          specularIntensity: 0.22,
           clearcoat: 0.0,
-          envMapIntensity: 0.24,
+          envMapIntensity: 0.20,
           transparent: false,
           opacity: 1.0,
           depthWrite: true,
@@ -1526,12 +1575,13 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           color: 0x67b7d1,
           map: scaleTexSet.albedoTint,
           normalMap: scaleTexSet.normalMap,
-          normalScale: new THREE.Vector2(0.95, 0.95),
+          normalScale: new THREE.Vector2(0.82, 0.82),
           roughnessMap: scaleTexSet.roughnessMap,
-          roughness: 0.68,
-          metalness: 0.18,
+          roughness: 0.82,
+          metalness: 0.14,
+          specularIntensity: 0.22,
           clearcoat: 0.0,
-          envMapIntensity: 0.28,
+          envMapIntensity: 0.22,
           transparent: false,
           opacity: 1.0,
           depthWrite: true,
@@ -1547,11 +1597,12 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
         new THREE.MeshPhysicalMaterial({
           color: 0x6ba7c0,
           normalMap: hornTexSet.normalMap,
-          normalScale: new THREE.Vector2(0.55, 0.55),
-          roughness: 0.62,
-          metalness: 0.12,
+          normalScale: new THREE.Vector2(0.45, 0.45),
+          roughness: 0.72,
+          metalness: 0.10,
+          specularIntensity: 0.18,
           clearcoat: 0.0,
-          envMapIntensity: 0.24,
+          envMapIntensity: 0.18,
           transparent: false,
           opacity: 1.0,
           depthWrite: true,
@@ -1568,12 +1619,13 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           color: 0x1c4459,
           map: wingTexSet.map,
           normalMap: wingTexSet.normalMap,
-          normalScale: new THREE.Vector2(1.05, 1.05),
-          roughness: 0.64,
+          normalScale: new THREE.Vector2(0.85, 0.85),
+          roughness: 0.72,
           metalness: 0.06,
-          sheen: 0.28,
-          sheenRoughness: 0.65,
-          envMapIntensity: 0.24,
+          specularIntensity: 0.18,
+          sheen: 0.18,
+          sheenRoughness: 0.7,
+          envMapIntensity: 0.18,
           side: THREE.DoubleSide,
           transparent: false,
           opacity: 1.0,
@@ -1591,12 +1643,13 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           color: 0xe2e8f0,
           map: hornTexSet.map,
           normalMap: hornTexSet.normalMap,
-          normalScale: new THREE.Vector2(0.95, 0.95),
-          roughness: 0.42,
-          metalness: 0.28,
-          clearcoat: 0.22,
-          clearcoatRoughness: 0.34,
-          envMapIntensity: 0.45,
+          normalScale: new THREE.Vector2(0.85, 0.85),
+          roughness: 0.48,
+          metalness: 0.22,
+          specularIntensity: 0.28,
+          clearcoat: 0.05,
+          clearcoatRoughness: 0.42,
+          envMapIntensity: 0.30,
           transparent: false,
           opacity: 1.0,
           depthWrite: true,
@@ -1787,6 +1840,13 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     neckMesh.castShadow = true;
     torsoGroup.add(neckMesh);
 
+    // Cervical Chest-Collar Ring bridging chest clavicles into lower neck base cleanly
+    const neckChestCollar = new THREE.Mesh(track(new THREE.SphereGeometry(0.30, 14, 12)), scaleHighlightMat);
+    neckChestCollar.position.set(0, 1.02, 0.28);
+    neckChestCollar.scale.set(1.02, 0.72, 1.05);
+    neckChestCollar.castShadow = true;
+    torsoGroup.add(neckChestCollar);
+
     // Ventral Neck Throat Plates
     for (let np = 0; np < 6; np++) {
       const t = (np + 0.4) / 6;
@@ -1839,11 +1899,16 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     sculptedHeadMesh.castShadow = true;
     headGroup.add(sculptedHeadMesh);
 
-    // Skull-to-Neck Ball Socket Collar (prevents any neck seam gap during pitch/yaw rotation)
+    // Skull-to-Neck Ball Socket Collar + Nuchal Occiput Bridge (eliminates head/neck gap on rotation)
     const neckSocketCollar = new THREE.Mesh(track(new THREE.SphereGeometry(0.185, 14, 12)), scaleMat);
     neckSocketCollar.position.set(0, -0.02, -0.08);
     neckSocketCollar.scale.set(1.04, 0.98, 1.15);
     headGroup.add(neckSocketCollar);
+
+    const nuchalBridge = new THREE.Mesh(track(new THREE.SphereGeometry(0.175, 14, 12)), scaleHighlightMat);
+    nuchalBridge.position.set(0, 0.04, -0.15);
+    nuchalBridge.scale.set(0.98, 0.92, 1.24);
+    headGroup.add(nuchalBridge);
 
     // Lower Eyelid Armor Accent
     const lowerLidGeo = track(new THREE.BoxGeometry(0.10, 0.024, 0.16));
@@ -1872,16 +1937,37 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       headGroup.add(eye, cornea, pupil);
     }
 
-    // Recessed Physical Nostrils + Nasal Tip Ridge Horn (crowning the solid closed snout nose)
-    const nostrilGeo = track(new THREE.SphereGeometry(0.022, 8, 8));
+    // Sculpted Nose Tip Cap, Nasal Bridge Scutes, Recessed Nostrils + Nostril Collars + Nasal Horn
+    const nasalScuteGeo = track(new THREE.BoxGeometry(0.072, 0.024, 0.082));
+    [0.34, 0.44, 0.53].forEach((nz, idx) => {
+      const scute = new THREE.Mesh(nasalScuteGeo, scaleHighlightMat);
+      const tScale = 1 - idx * 0.12;
+      scute.position.set(0, 0.118 - idx * 0.011, nz);
+      scute.scale.set(tScale, 1, 1);
+      scute.rotation.x = 0.08;
+      headGroup.add(scute);
+    });
+
+    const noseTipCap = new THREE.Mesh(track(new THREE.SphereGeometry(0.078, 12, 10)), scaleHighlightMat);
+    noseTipCap.position.set(0, 0.032, 0.655);
+    noseTipCap.scale.set(1.06, 0.78, 0.92);
+    headGroup.add(noseTipCap);
+
+    const nostrilGeo = track(new THREE.SphereGeometry(0.024, 8, 8));
+    const nostrilCollarGeo = track(new THREE.TorusGeometry(0.028, 0.008, 6, 12));
     for (const side of [-1, 1] as const) {
       const nos = new THREE.Mesh(nostrilGeo, pupilMat);
-      nos.scale.set(0.82, 0.68, 1.35);
-      nos.position.set(side * 0.056, 0.056, 0.595);
-      headGroup.add(nos);
+      nos.scale.set(0.84, 0.72, 1.35);
+      nos.position.set(side * 0.058, 0.056, 0.598);
+
+      const collar = new THREE.Mesh(nostrilCollarGeo, scaleHighlightMat);
+      collar.position.set(side * 0.058, 0.058, 0.594);
+      collar.rotation.y = side * 0.35;
+      collar.rotation.x = 0.28;
+      headGroup.add(nos, collar);
     }
-    const nasalHorn = new THREE.Mesh(track(new THREE.ConeGeometry(0.036, 0.14, 5)), hornMat);
-    nasalHorn.position.set(0, 0.105, 0.585);
+    const nasalHorn = new THREE.Mesh(track(new THREE.ConeGeometry(0.038, 0.15, 5)), hornMat);
+    nasalHorn.position.set(0, 0.106, 0.595);
     nasalHorn.rotation.x = -Math.PI * 0.22;
     headGroup.add(nasalHorn);
 
@@ -2139,6 +2225,16 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       hindLegMesh.castShadow = true;
       hip.add(hindLegMesh);
 
+      const kneeJoint = new THREE.Mesh(jointSphereGeo, scaleHighlightMat);
+      kneeJoint.position.set(side * 0.145, -0.22, -0.17);
+      kneeJoint.scale.set(0.12, 0.12, 0.12);
+      hip.add(kneeJoint);
+
+      const hockJoint = new THREE.Mesh(jointSphereGeo, scaleMat);
+      hockJoint.position.set(side * 0.15, -0.43, -0.12);
+      hockJoint.scale.set(0.10, 0.10, 0.10);
+      hip.add(hockJoint);
+
       const kneeSpur = new THREE.Mesh(track(new THREE.ConeGeometry(0.04, 0.19, 5)), hornMat);
       kneeSpur.position.set(side * 0.14, 0.04, 0.20);
       kneeSpur.rotation.x = 0.65;
@@ -2183,7 +2279,9 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       return hip;
     };
 
-    rigPivot.add(buildHindlimb(-1), buildHindlimb(1));
+    const hindL = buildHindlimb(-1);
+    const hindR = buildHindlimb(1);
+    rigPivot.add(hindL, hindR);
 
     // --- 5. SWEEPING SPIKED DRAGON TAIL (pivots directly from muscular rump socket) ---
     const tailPivot = new THREE.Group();
@@ -2512,6 +2610,28 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     let lastSkinSynced: DuckSkinId | null = null;
     let lastAuraSynced: DuckAuraId | null = null;
     let lastLightningSeedTime = -1;
+    let currentEvoScale = 0.84;
+    let currentWingScale = 0.80;
+
+    type LifeMode = 'IDLE' | 'FLY' | 'WALK' | 'SLEEP' | 'STRETCH';
+    const life = {
+      mode: 'IDLE' as LifeMode,
+      timer: 0,
+      duration: 7.5,
+      wIdle: 1,
+      wFly: 0,
+      wWalk: 0,
+      wSleep: 0,
+      wStretch: 0,
+    };
+
+    const pickNextLifeMode = (curMode: LifeMode, isFeverNow: boolean): LifeMode => {
+      if (isFeverNow) return 'FLY';
+      const pool: LifeMode[] = ['IDLE', 'FLY', 'WALK', 'SLEEP', 'STRETCH'].filter(
+        (m) => m !== curMode
+      ) as LifeMode[];
+      return pool[Math.floor(Math.random() * pool.length)] ?? 'IDLE';
+    };
 
     const clock = new THREE.Clock();
     let frameId = 0;
@@ -2555,11 +2675,11 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       attr.needsUpdate = true;
     };
 
-    const applySkinAndState = (elapsed: number) => {
+    const applySkinAndState = (elapsed: number, animate: boolean) => {
       const cur = propsRef.current;
       const pal = SKIN_3D_PALETTES[cur.skin] ?? SKIN_3D_PALETTES.aqua;
       const cLv = clampCustomLevel(cur.customLevel);
-      const cLvNorm = cLv * 10; // Map ★0..10 cleanly to visual evolution intensity 0..100
+      const cLvNorm = cLv * 10;
       const starMeta = getStarTierMeta(cLv);
       const pulse = pulseStateRef.current;
 
@@ -2590,12 +2710,10 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
         boltMat.color.set(cur.aura === 'flame' ? '#fb923c' : cur.aura === 'gold' ? '#fde047' : pal.wingVein);
         auraPointLight.color.set(auraHex);
 
-        // Keep crisp neutral-tinted rim edge highlight per element (zero neon body wash)
         dragonShaderUniforms.uRimColor.value.set(
           pal.element === 'frost' ? '#dff2ff' : pal.element === 'storm' ? '#e2e8ff' : '#ffedd5'
         );
 
-        // Configure crisp element-specific external particle sprites (Zero paint-blob splatter)
         if (pal.element === 'frost') {
           particleMat.map = snowCrystalTex;
           particleMat.blending = THREE.NormalBlending;
@@ -2617,27 +2735,30 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
         }
         particleMat.needsUpdate = true;
 
-        // Re-seed particle motion direction cleanly for the element
         for (let i = 0; i < particleCount; i++) {
           placeParticleInOuterZone(i, elapsed + i * 0.21, pal.element);
-          pPositions[i * 3 + 1] = 0.2 + ((i / particleCount) * 2.6);
+          pPositions[i * 3 + 1] = 0.2 + (i / particleCount) * 2.6;
         }
         (particleGeo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
       }
 
-      const sizeMult = cur.sizeTier === 'XXL' ? 1.18 : cur.sizeTier === 'XL' ? 1.09 : 1.0;
-      const evoScale = (0.88 + (cur.level - 1) * 0.06 + (cLv >= 5 ? 0.03 : 0)) * sizeMult;
-      const breathSquash = prefersReduced ? 1 : 1 + Math.sin(elapsed * 2.1) * 0.015;
+      // Bounded auto-fit scale across LVL 1..5 & XL/XXL so upgrades never clip off-screen
+      const sizeMult = cur.sizeTier === 'XXL' ? 1.10 : cur.sizeTier === 'XL' ? 1.05 : 1.0;
+      const evoScale = (0.84 + (cur.level - 1) * 0.035 + (cLv >= 5 ? 0.02 : 0)) * sizeMult;
+      const breathRate = animate ? 2.1 - life.wSleep * 0.75 + life.wFly * 0.6 : 0;
+      const breathSquash = animate ? 1 + Math.sin(elapsed * breathRate) * (0.013 + life.wSleep * 0.008) : 1;
+      const joyPulse = animate ? pulse.feedJoy * 0.016 + pulse.roarImpulse * 0.038 : 0;
+
       dragonRoot.scale.set(
-        evoScale * (1 + pulse.roarImpulse * 0.045),
+        evoScale * (1 + joyPulse),
         evoScale * breathSquash,
-        evoScale * (1 + pulse.roarImpulse * 0.045)
+        evoScale * (1 + joyPulse)
       );
 
-      const hornGrowth = 0.84 + cur.level * 0.11 + (cLv >= 7 ? 0.09 : 0);
+      const hornGrowth = 0.84 + cur.level * 0.065 + (cLv >= 7 ? 0.06 : 0);
       hornGroup.scale.setScalar(hornGrowth);
 
-      const dorsalScale = 0.86 + cur.level * 0.09;
+      const dorsalScale = 0.86 + cur.level * 0.065;
       const showCrestArmor = cLv >= 3;
       dorsalSpikes.forEach((sp, i) => {
         const base = 0.85 + Math.sin((i / 7) * Math.PI) * 0.45;
@@ -2647,9 +2768,12 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
         cp.visible = showCrestArmor;
       });
 
-      const wingScale = (cur.level >= 2 ? 0.92 + cur.level * 0.075 : 0.78) * (cur.gear === 'wings' ? 1.18 : 1);
+      const wingScale = (cur.level >= 2 ? 0.86 + cur.level * 0.034 : 0.80) * (cur.gear === 'wings' ? 1.08 : 1);
       wingL.shoulderPivot.scale.setScalar(wingScale);
       wingR.shoulderPivot.scale.setScalar(wingScale);
+
+      currentEvoScale = evoScale;
+      currentWingScale = wingScale;
 
       crownGroup.visible = cur.gear === 'crown';
       helmetGroup.visible = cur.gear === 'helmet';
@@ -2657,27 +2781,26 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       wingL.stormBlade.visible = cur.gear === 'wings';
       wingR.stormBlade.visible = cur.gear === 'wings';
 
-      // Bind Star Evolution Tier Visuals to external pedestal rings & rear halo
       runeFissureMat.emissiveIntensity = 1.15 + Math.min(1.4, cLvNorm * 0.015);
 
       starOrbitGroup.visible = cLv >= 1;
       if (starOrbitGroup.visible) {
-        starOrbitGroup.rotation.y = elapsed * (0.45 + cLv * 0.04);
+        starOrbitGroup.rotation.y = animate ? elapsed * (0.45 + cLv * 0.04) : 0.4;
         const activeSats =
           cLv >= 8 ? 6 : cLv >= 6 ? 5 : cLv >= 4 ? 4 : cLv >= 3 ? 3 : cLv >= 2 ? 2 : 1;
         starSatellites.forEach((sat, idx) => {
           sat.visible = idx < activeSats;
-          sat.rotation.y = elapsed * 1.8;
+          sat.rotation.y = animate ? elapsed * 1.8 : 0.5;
         });
         astralRing.visible = cLv >= 5;
         if (astralRing.visible) {
-          astralRing.rotation.z = -elapsed * 0.4;
+          astralRing.rotation.z = animate ? -elapsed * 0.4 : 0;
         }
       }
 
       apexHaloGroup.visible = cLv >= 10;
       if (apexHaloGroup.visible) {
-        apexHaloGroup.rotation.z = elapsed * 0.65;
+        apexHaloGroup.rotation.z = animate ? elapsed * 0.65 : 0;
       }
 
       if (cLv >= 5 && cur.aura === 'auto') {
@@ -2685,7 +2808,8 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       }
 
       const showLightning =
-        pal.element === 'storm' || cur.isFever || pulse.burstEnergy > 0.25 || cur.gear === 'wings' || cLv >= 5;
+        animate &&
+        (pal.element === 'storm' || cur.isFever || pulse.burstEnergy > 0.25 || cur.gear === 'wings' || cLv >= 5);
       lightningLines.visible = showLightning;
       if (showLightning) {
         boltMat.opacity = cur.isFever || cLv >= 7 ? 0.92 : Math.min(0.9, 0.48 + pulse.burstEnergy * 0.42);
@@ -2695,25 +2819,96 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
         }
       }
 
-      // Breath stays OFF at idle so snout & fangs stay 100% sharp; erupts cleanly on Roar/Fever
-      const activeRoar = cur.isFever || pulse.roarImpulse > 0.08;
+      // Dim eyes gently while sleeping; brighten softly during feeding joy or roar
+      eyeMat.emissiveIntensity = animate
+        ? THREE.MathUtils.lerp(1.15 + pulse.feedJoy * 0.35 + pulse.roarImpulse * 0.45, 0.36, life.wSleep)
+        : 1.15;
+
+      const activeRoar = animate && (cur.isFever || pulse.roarImpulse > 0.08);
       breathCone.visible = activeRoar;
       const roarIntensity = activeRoar ? Math.min(1.3, (cur.isFever ? 0.65 : 0) + pulse.roarImpulse * 0.9) : 0;
-      mawGlowMat.emissiveIntensity = 0.2 + roarIntensity * 2.2;
+      mawGlowMat.emissiveIntensity = 0.2 + roarIntensity * 2.2 + (animate ? pulse.feedJoy * 0.35 : 0);
       if (activeRoar) {
         breathMat.opacity = roarIntensity * 0.44;
         breathCone.scale.set(0.72 + roarIntensity * 0.62, 0.72 + roarIntensity * 0.72, 0.72 + roarIntensity * 0.62);
       }
 
-      // Pedestal Layer-1 Aura Point Light (rock & ground rings only)
-      const glowMult = (cur.isFever ? 1.45 : 0.85 + pulse.burstEnergy * 0.4) + Math.min(0.35, cLv * 0.03);
-      auraPointLight.intensity = 0.75 * glowMult + Math.sin(elapsed * 3.0) * 0.12;
+      emberPoints.visible = animate;
+
+      const glowMult = (cur.isFever ? 1.45 : 0.85 + (animate ? pulse.burstEnergy * 0.35 : 0)) + Math.min(0.35, cLv * 0.03);
+      auraPointLight.intensity = 0.75 * glowMult + (animate ? Math.sin(elapsed * 3.0) * 0.12 : 0);
       _colorA.set(pal.element === 'frost' ? '#e0f2fe' : pal.ember);
       _colorB.set('#f43f5e');
-      if (cur.isFever) {
+      if (cur.isFever && animate) {
         particleMat.color.lerpColors(_colorA, _colorB, 0.5 + 0.5 * Math.sin(elapsed * 6));
       }
     };
+
+    const updateDynamicCamera = (
+      camBreathingX: number,
+      camBreathingY: number,
+      shakeX: number,
+      shakeY: number,
+      roarZoom: number,
+      parallaxX: number,
+      parallaxY: number
+    ) => {
+      const aspect = Math.max(0.55, camera.aspect || 1);
+      const fitScale = Math.max(1.0, currentEvoScale * (0.62 + currentWingScale * 0.44));
+      const portraitPull = aspect < 1 ? 1 + (1 - aspect) * 0.34 : 1.0;
+      const zoomFactor = fitScale * portraitPull;
+      const dynamicTargetY = 1.18 * (0.94 + currentEvoScale * 0.08);
+      lookTarget.set(0.04, dynamicTargetY, -0.05);
+
+      camera.position.set(
+        baseCameraPos.x * zoomFactor + parallaxX * 0.24 + camBreathingX + shakeX,
+        (baseCameraPos.y - 1.24) * zoomFactor + dynamicTargetY + parallaxY * 0.16 + camBreathingY + shakeY,
+        baseCameraPos.z * zoomFactor - roarZoom * 0.14
+      );
+      camera.lookAt(lookTarget);
+    };
+
+    const renderStaticPose = () => {
+      if (disposed) return;
+      const pulse = pulseStateRef.current;
+      applySkinAndState(0, false);
+
+      pulse.dragYaw = pulse.targetYaw;
+      pulse.dragPitch = pulse.targetPitch;
+      rigPivot.rotation.y = pulse.dragYaw;
+      rigPivot.rotation.x = pulse.dragPitch;
+      rigPivot.position.set(0, 0, 0);
+      dragonRoot.position.y = 0.34;
+
+      torsoGroup.position.set(0, 0, 0);
+      torsoGroup.rotation.set(0, 0, 0);
+      headGroup.position.set(0, 1.72, 0.26);
+      headGroup.rotation.set(-0.04, 0, 0);
+      jawPivot.rotation.x = 0.18;
+      tailPivot.position.set(0, 0.60, -0.50);
+      tailPivot.rotation.set(0, 0, 0);
+
+      foreL.shoulder.position.set(-0.30, 0.88, 0.22);
+      foreL.shoulder.rotation.set(0, 0, 0);
+      foreL.forearmPivot.rotation.set(0, 0, 0);
+      foreR.shoulder.position.set(0.30, 0.88, 0.22);
+      foreR.shoulder.rotation.set(0, 0, 0);
+      foreR.forearmPivot.rotation.set(0, 0, 0);
+      hindL.rotation.set(0, 0, 0);
+      hindR.rotation.set(0, 0, 0);
+
+      wingL.shoulderPivot.position.set(-0.25, 1.06, -0.02);
+      wingL.shoulderPivot.rotation.set(0, 0.36, -0.06);
+      wingL.outerPivot.rotation.set(0, 0.14, 0);
+      wingR.shoulderPivot.position.set(0.25, 1.06, -0.02);
+      wingR.shoulderPivot.rotation.set(0, -0.36, 0.06);
+      wingR.outerPivot.rotation.set(0, -0.14, 0);
+
+      updateDynamicCamera(0, 0, 0, 0, 0, 0, 0);
+      renderer.render(scene, camera);
+    };
+
+    renderStaticRef.current = renderStaticPose;
 
     function afterDraw(cb: () => void) {
       const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -2736,8 +2931,23 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       frameId = window.setTimeout(poll, 5);
     }
 
+    let loopActive = false;
+
     const tick = () => {
       if (disposed) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        loopActive = false;
+        return;
+      }
+      const cur = propsRef.current;
+
+      if (!cur.motionEnabled) {
+        loopActive = false;
+        renderStaticPose();
+        return;
+      }
+
+      loopActive = true;
       const dt = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.getElapsedTime();
 
@@ -2755,8 +2965,43 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
 
       const pulse = pulseStateRef.current;
       pulse.roarImpulse = THREE.MathUtils.damp(pulse.roarImpulse, 0, 7.5, dt);
-      pulse.burstEnergy = THREE.MathUtils.damp(pulse.burstEnergy, 0, 3.8, dt);
+      pulse.feedJoy = THREE.MathUtils.damp(pulse.feedJoy, 0, 2.2, dt);
+      pulse.burstEnergy = THREE.MathUtils.damp(pulse.burstEnergy, 0, 3.4, dt);
       pulse.cameraShake = THREE.MathUtils.damp(pulse.cameraShake, 0, 12.0, dt);
+
+      if (pulse.wakeRequested) {
+        pulse.wakeRequested = false;
+        if (life.mode === 'SLEEP') {
+          life.mode = 'IDLE';
+          life.timer = 0;
+          life.duration = 6 + Math.random() * 4;
+        }
+      }
+
+      // Autonomous Natural Dragon Life Simulation (smooth crossfaded weights)
+      if (!prefersReduced) {
+        if (cur.isFever && life.mode !== 'FLY') {
+          life.mode = 'FLY';
+          life.timer = 0;
+          life.duration = 6.5;
+        } else {
+          life.timer += dt;
+          if (life.timer >= life.duration) {
+            life.timer = 0;
+            life.duration = 6.0 + Math.random() * 5.0;
+            life.mode = pickNextLifeMode(life.mode, cur.isFever);
+          }
+        }
+      } else {
+        life.mode = 'IDLE';
+      }
+
+      const blendSpeed = 2.4;
+      life.wIdle = THREE.MathUtils.damp(life.wIdle, life.mode === 'IDLE' ? 1 : 0, blendSpeed, dt);
+      life.wFly = THREE.MathUtils.damp(life.wFly, life.mode === 'FLY' ? 1 : 0, blendSpeed, dt);
+      life.wWalk = THREE.MathUtils.damp(life.wWalk, life.mode === 'WALK' ? 1 : 0, blendSpeed, dt);
+      life.wSleep = THREE.MathUtils.damp(life.wSleep, life.mode === 'SLEEP' ? 1 : 0, blendSpeed, dt);
+      life.wStretch = THREE.MathUtils.damp(life.wStretch, life.mode === 'STRETCH' ? 1 : 0, blendSpeed, dt);
 
       if (prefersReduced) {
         pulse.currentParallaxX = 0;
@@ -2767,7 +3012,8 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       }
 
       if (!pulse.isDragging && performance.now() > pulse.dragHoldUntil) {
-        pulse.targetYaw = -0.48 + (prefersReduced ? 0 : Math.sin(elapsed * 0.52) * 0.16);
+        const prowlTurn = life.wWalk * Math.sin(elapsed * 0.7) * 0.18 + life.wStretch * 0.22;
+        pulse.targetYaw = -0.48 + (prefersReduced ? 0 : Math.sin(elapsed * 0.45) * 0.12 + prowlTurn);
         pulse.targetPitch = 0;
       }
       pulse.dragYaw = THREE.MathUtils.damp(pulse.dragYaw, pulse.targetYaw, 7, dt);
@@ -2775,81 +3021,117 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       rigPivot.rotation.y = pulse.dragYaw;
       rigPivot.rotation.x = pulse.dragPitch;
 
-      // Sync 8D spatial stereo pan (throttled inside soundFX)
       soundFX.setDragonSpatialAngle(pulse.dragYaw);
 
-      // Camera Parallax, Subtle Breathing, Micro Roar Zoom & Controlled Shake
-      const camBreathingX = prefersReduced ? 0 : Math.sin(elapsed * 0.42) * 0.05;
-      const camBreathingY = prefersReduced ? 0 : Math.cos(elapsed * 0.65) * 0.035;
+      applySkinAndState(elapsed, true);
+
+      const camBreathingX = prefersReduced ? 0 : Math.sin(elapsed * 0.42) * 0.04;
+      const camBreathingY = prefersReduced ? 0 : Math.cos(elapsed * 0.65) * 0.03;
       const shakeX = prefersReduced ? 0 : (Math.random() - 0.5) * pulse.cameraShake;
       const shakeY = prefersReduced ? 0 : (Math.random() - 0.5) * pulse.cameraShake;
-
-      camera.position.set(
-        baseCameraPos.x + pulse.currentParallaxX * 0.28 + camBreathingX + shakeX,
-        baseCameraPos.y + pulse.currentParallaxY * 0.18 + camBreathingY + shakeY,
-        baseCameraPos.z - pulse.roarImpulse * 0.16
+      updateDynamicCamera(
+        camBreathingX,
+        camBreathingY,
+        shakeX,
+        shakeY,
+        pulse.roarImpulse,
+        pulse.currentParallaxX,
+        pulse.currentParallaxY
       );
-      camera.lookAt(lookTarget);
 
-      const cur = propsRef.current;
-      const flapSpeed = cur.isFever ? 6.8 : 2.35 + pulse.burstEnergy * 1.9;
-      const flapWave = prefersReduced ? 0 : Math.sin(elapsed * flapSpeed);
-      const roarLift = pulse.roarImpulse * 0.22;
+      // Blend Natural Life Pose Kinematics
+      const flyHover = life.wFly * (0.42 + Math.sin(elapsed * 3.1) * 0.09);
+      const sleepDrop = life.wSleep * -0.14;
+      const walkBob = life.wWalk * Math.abs(Math.sin(elapsed * 4.4)) * 0.035;
+      const stretchLift = life.wStretch * 0.08 * Math.sin(Math.min(Math.PI, (life.timer / Math.max(1, life.duration)) * Math.PI));
 
-      const torsoLiftY = (prefersReduced ? 0 : Math.sin(elapsed * 2.1) * 0.022) + roarLift * 0.14;
+      dragonRoot.position.y = 0.34 + flyHover + sleepDrop;
+
+      const breathWave = prefersReduced ? 0 : Math.sin(elapsed * (2.0 - life.wSleep * 0.7)) * 0.02;
+      const joyHop = pulse.feedJoy * Math.abs(Math.sin(elapsed * 5.2)) * 0.025;
+      const torsoLiftY = breathWave + walkBob + stretchLift + joyHop + pulse.roarImpulse * 0.10;
+
       torsoGroup.position.y = torsoLiftY;
-      headGroup.position.y = 1.72 + torsoLiftY;
-      tailPivot.position.y = 0.60 + torsoLiftY;
-      foreL.shoulder.position.y = 0.88 + torsoLiftY * 0.55;
-      foreR.shoulder.position.y = 0.88 + torsoLiftY * 0.55;
-      wingL.shoulderPivot.position.y = 1.06 + torsoLiftY;
-      wingR.shoulderPivot.position.y = 1.06 + torsoLiftY;
+      torsoGroup.rotation.x = life.wFly * -0.12 + life.wSleep * 0.10 - life.wStretch * 0.14;
+      torsoGroup.rotation.z = life.wWalk * Math.sin(elapsed * 2.2) * 0.045;
+
+      headGroup.position.y = 1.72 + torsoLiftY - life.wSleep * 0.24 + stretchLift * 0.5;
       headGroup.rotation.x =
         -0.04 +
-        (prefersReduced ? 0 : Math.sin(elapsed * 1.9) * 0.055) -
-        pulse.roarImpulse * 0.28 +
+        (prefersReduced ? 0 : Math.sin(elapsed * 1.7) * 0.045) +
+        life.wSleep * 0.38 -
+        life.wFly * 0.14 -
+        life.wStretch * 0.18 -
+        pulse.roarImpulse * 0.24 +
+        pulse.feedJoy * Math.sin(elapsed * 6.5) * 0.09 +
         pulse.currentParallaxY * 0.12;
       headGroup.rotation.y =
-        (prefersReduced ? 0 : Math.sin(elapsed * 0.85) * 0.08) + pulse.currentParallaxX * 0.22;
+        (prefersReduced ? 0 : Math.sin(elapsed * 0.85) * (0.08 + life.wIdle * 0.10)) +
+        life.wStretch * Math.sin(elapsed * 1.1) * 0.36 +
+        pulse.currentParallaxX * 0.22;
+
       jawPivot.rotation.x =
-        0.22 +
-        (prefersReduced ? 0 : Math.max(0, Math.sin(elapsed * 2.1)) * 0.08) +
-        pulse.roarImpulse * 0.42 +
-        (cur.isFever ? 0.18 : 0);
+        THREE.MathUtils.lerp(0.18, 0.03, life.wSleep) +
+        (prefersReduced ? 0 : Math.max(0, Math.sin(elapsed * 2.1)) * 0.06 * (1 - life.wSleep)) +
+        pulse.feedJoy * 0.16 +
+        pulse.roarImpulse * 0.40 +
+        (cur.isFever ? 0.16 : 0);
 
-      foreL.shoulder.rotation.x = -pulse.roarImpulse * 0.34;
-      foreL.forearmPivot.rotation.x = -pulse.roarImpulse * 0.28;
-      foreR.shoulder.rotation.x = -pulse.roarImpulse * 0.28;
-      foreR.forearmPivot.rotation.x = -pulse.roarImpulse * 0.22;
+      // Quadruped Forelimb & Hindlimb Natural Motion
+      const stride = life.wWalk * Math.sin(elapsed * 4.4);
+      const tuck = life.wFly * 0.38 + life.wSleep * 0.42;
 
-      const flare = pulse.roarImpulse * 0.26;
-      wingL.shoulderPivot.rotation.y = 0.36 + flapWave * 0.18 + flare;
-      wingL.shoulderPivot.rotation.z = -0.06 + flapWave * 0.14;
-      wingL.outerPivot.rotation.y = 0.14 + flapWave * 0.14;
+      foreL.shoulder.position.y = 0.88 + torsoLiftY * 0.55;
+      foreR.shoulder.position.y = 0.88 + torsoLiftY * 0.55;
+      foreL.shoulder.rotation.x = stride * 0.32 + tuck - pulse.roarImpulse * 0.28 - pulse.feedJoy * 0.12;
+      foreL.forearmPivot.rotation.x = Math.max(0, -stride) * 0.35 + life.wSleep * 0.35 - pulse.roarImpulse * 0.22;
+      foreR.shoulder.rotation.x = -stride * 0.32 + tuck - pulse.roarImpulse * 0.24 - pulse.feedJoy * 0.10;
+      foreR.forearmPivot.rotation.x = Math.max(0, stride) * 0.35 + life.wSleep * 0.35 - pulse.roarImpulse * 0.18;
 
-      wingR.shoulderPivot.rotation.y = -0.36 - flapWave * 0.18 - flare;
-      wingR.shoulderPivot.rotation.z = 0.06 - flapWave * 0.14;
-      wingR.outerPivot.rotation.y = -0.14 - flapWave * 0.14;
+      hindL.rotation.x = -stride * 0.28 + life.wFly * 0.28 + life.wSleep * 0.32;
+      hindR.rotation.x = stride * 0.28 + life.wFly * 0.28 + life.wSleep * 0.32;
 
-      tailPivot.rotation.y = prefersReduced ? 0 : Math.sin(elapsed * 1.65) * 0.075;
+      // Wings: gentle idle breath, wide majestic flight stroke, tucked sleep drape, wide stretch flare
+      const flapFreq =
+        (cur.isFever ? 6.2 : 2.1) + life.wFly * 2.8 + pulse.feedJoy * 1.4 + pulse.burstEnergy * 0.9;
+      const flapAmp = 0.12 + life.wFly * 0.38 + pulse.feedJoy * 0.10;
+      const flapWave = prefersReduced ? 0 : Math.sin(elapsed * flapFreq) * flapAmp;
+      const stretchFlare = life.wStretch * 0.34;
+      const sleepFold = life.wSleep * 0.28;
+      const roarFlare = pulse.roarImpulse * 0.22;
 
-      applySkinAndState(elapsed);
+      wingL.shoulderPivot.position.y = 1.06 + torsoLiftY;
+      wingR.shoulderPivot.position.y = 1.06 + torsoLiftY;
+
+      wingL.shoulderPivot.rotation.y = 0.36 + flapWave + roarFlare + stretchFlare - sleepFold;
+      wingL.shoulderPivot.rotation.z = -0.06 + flapWave * 0.78 - sleepFold * 0.55;
+      wingL.outerPivot.rotation.y = 0.14 + flapWave * 0.72 + stretchFlare * 0.45 - sleepFold * 0.5;
+
+      wingR.shoulderPivot.rotation.y = -0.36 - flapWave - roarFlare - stretchFlare + sleepFold;
+      wingR.shoulderPivot.rotation.z = 0.06 - flapWave * 0.78 + sleepFold * 0.55;
+      wingR.outerPivot.rotation.y = -0.14 - flapWave * 0.72 - stretchFlare * 0.45 + sleepFold * 0.5;
+
+      tailPivot.position.y = 0.60 + torsoLiftY;
+      tailPivot.rotation.y = prefersReduced
+        ? 0
+        : Math.sin(elapsed * (1.55 + life.wFly * 1.2 + life.wWalk * 0.9)) * (0.075 + life.wFly * 0.06 - life.wSleep * 0.05);
+      tailPivot.rotation.x = life.wFly * 0.14 - life.wSleep * 0.08 + life.wStretch * 0.12;
 
       const activePal = SKIN_3D_PALETTES[cur.skin] ?? SKIN_3D_PALETTES.aqua;
       const posAttr = particleGeo.getAttribute('position') as THREE.BufferAttribute;
       const arr = posAttr.array as Float32Array;
-      const speedMult = (cur.isFever ? 1.9 : 1) + pulse.burstEnergy * 1.1;
+      const speedMult = (cur.isFever ? 1.9 : 1) + pulse.burstEnergy * 0.85;
       for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
         arr[idx] += pVelocities[idx] * dt * speedMult;
         arr[idx + 1] += pVelocities[idx + 1] * dt * speedMult;
         arr[idx + 2] += pVelocities[idx + 2] * dt * speedMult;
-        pLife[i] += dt * (0.34 + pulse.burstEnergy * 0.25);
+        pLife[i] += dt * (0.34 + pulse.burstEnergy * 0.22);
 
         const px = arr[idx];
         const py = arr[idx + 1];
         const pz = arr[idx + 2];
-        const insideDragonZone = Math.hypot(px, pz) < 1.58 && pz > -0.95;
+        const insideDragonZone = pz > -0.95 && Math.abs(px) < 1.72;
         const outOfBounds = py > 3.1 || py < 0.12;
 
         if (pLife[i] >= 1 || outOfBounds || insideDragonZone) {
@@ -2868,10 +3150,20 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       }
     };
 
+    wakeTickRef.current = () => {
+      if (disposed || loopActive) return;
+      clock.getDelta();
+      tick();
+    };
+
     if (!isSoftwareGl && tier === 'HIGH') {
       renderer.compile(scene, camera);
     }
-    tick();
+    if (propsRef.current.motionEnabled) {
+      tick();
+    } else {
+      renderStaticPose();
+    }
 
     let lastW = width;
     let lastH = height;
@@ -2888,6 +3180,9 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h, false);
+      if (!propsRef.current.motionEnabled) {
+        renderStaticPose();
+      }
     };
 
     const scheduleResize = () => {
@@ -2898,13 +3193,22 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(scheduleResize) : null;
     ro?.observe(container);
     window.addEventListener('resize', scheduleResize);
+    const onVisibilityChange = () => {
+      if (!document.hidden && propsRef.current.motionEnabled && !loopActive && !disposed) {
+        wakeTickRef.current?.();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       disposed = true;
+      wakeTickRef.current = null;
+      renderStaticRef.current = null;
       cancelAnimationFrame(frameId);
       cancelAnimationFrame(resizeRaf);
       clearTimeout(frameId);
       ro?.disconnect();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('resize', scheduleResize);
       canvasEl.removeEventListener('webglcontextlost', onContextLost);
       canvasEl.removeEventListener('webglcontextrestored', onContextRestored);
@@ -2927,6 +3231,7 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           gear={gear}
           aura={aura}
           showEvolutionEffects={true}
+          motionEnabled={motionEnabled}
           mood={isFever ? 'fever' : 'idle'}
           className="w-48 h-48 sm:w-56 sm:h-56"
         />
@@ -2962,6 +3267,9 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
           -0.25,
           0.25
         );
+        if (!propsRef.current.motionEnabled) {
+          renderStaticRef.current?.();
+        }
       }}
       onPointerUp={(e) => {
         const moved = Math.hypot(
@@ -2993,3 +3301,5 @@ export const Dragon3DStage: React.FC<Dragon3DStageProps> = ({
     </div>
   );
 };
+
+export const Dragon3DStage = React.memo(Dragon3DStageInner);

@@ -75,6 +75,8 @@ export const ArenaVfxCanvas = React.forwardRef<ArenaVfxHandle, { className?: str
     texts: [],
   });
 
+  const wakeRef = useRef<(() => void) | null>(null);
+
   useImperativeHandle(ref, () => ({
     spawnAttack(kind, label) {
       const w = sizeRef.current.w || 360;
@@ -189,6 +191,7 @@ export const ArenaVfxCanvas = React.forwardRef<ArenaVfxHandle, { className?: str
           s.texts.push({ x: enemyX, y: midY - 28, vy: -46, text: label, color: '#fde047', life: 0, big: true });
         }
       }
+      wakeRef.current?.();
     },
   }));
 
@@ -231,13 +234,36 @@ export const ArenaVfxCanvas = React.forwardRef<ArenaVfxHandle, { className?: str
 
     let rafId = 0;
     let lastTs = performance.now();
+    let needsClear = false;
+
+    const hasEffects = () => {
+      const s = stateRef.current;
+      return (
+        s.projectiles.length > 0 ||
+        s.slashes.length > 0 ||
+        s.rings.length > 0 ||
+        s.sparks.length > 0 ||
+        s.texts.length > 0
+      );
+    };
 
     const loop = (now: number) => {
+      rafId = 0;
+      if (document.hidden) return;
       const dt = Math.min((now - lastTs) / 1000, 0.05);
       lastTs = now;
       const s = stateRef.current;
       const { w, h } = sizeRef.current;
 
+      if (!hasEffects()) {
+        if (needsClear) {
+          ctx.clearRect(0, 0, w, h);
+          needsClear = false;
+        }
+        return;
+      }
+
+      needsClear = true;
       ctx.clearRect(0, 0, w, h);
 
       // Update & draw projectiles
@@ -357,14 +383,31 @@ export const ArenaVfxCanvas = React.forwardRef<ArenaVfxHandle, { className?: str
         if (tx.life >= 0.85) s.texts.splice(i, 1);
       }
 
-      rafId = requestAnimationFrame(loop);
+      if (hasEffects() || needsClear) {
+        rafId = requestAnimationFrame(loop);
+      }
     };
 
-    rafId = requestAnimationFrame(loop);
+    const wake = () => {
+      if (document.hidden || rafId) return;
+      lastTs = performance.now();
+      rafId = requestAnimationFrame(loop);
+    };
+    wakeRef.current = wake;
+
+    const onVisChange = () => {
+      if (!document.hidden && (hasEffects() || needsClear)) {
+        wake();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisChange);
+
     return () => {
+      wakeRef.current = null;
       cancelAnimationFrame(rafId);
       cancelAnimationFrame(resizeRaf);
       ro?.disconnect();
+      document.removeEventListener('visibilitychange', onVisChange);
       window.removeEventListener('resize', scheduleResize);
     };
   }, []);

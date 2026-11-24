@@ -1,0 +1,479 @@
+{
+  "entities": {
+    "TestConnection": {
+      "title": "TestConnection",
+      "description": "Startup Firestore connectivity probe document.",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": ["ok"]
+    },
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Owner-only private player profile with Telegram ID hash binding (no public PII exposure, no player deletion).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "telegramIdHash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "telegramVerified": {
+          "type": "boolean"
+        },
+        "powerRating": {
+          "type": "integer"
+        },
+        "leaguePoints": {
+          "type": "integer"
+        },
+        "dmdTotal": {
+          "type": "number"
+        },
+        "dragonCount": {
+          "type": "integer"
+        },
+        "allianceId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "activeDragonName": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "activeDragonSkin": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "activeDragonRarity": {
+          "type": "string",
+          "enum": ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"]
+        },
+        "activeDragonLevel": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "username", "powerRating", "leaguePoints", "dmdTotal", "dragonCount", "updatedAt"]
+    },
+    "PlayerSave": {
+      "title": "PlayerSave",
+      "description": "Owner-only encrypted cloud save document bound to uid and immutable telegramIdHash.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "telegramIdHash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "encryptedSensitive": {
+          "type": "object"
+        },
+        "gameStateMap": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "schemaVersion", "encryptedSensitive", "gameStateMap", "updatedAt"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public read-only, server-written leaderboard entry containing only display name, avatar, and public game stats (no Telegram IDs).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "powerRating": {
+          "type": "integer"
+        },
+        "leaguePoints": {
+          "type": "integer"
+        },
+        "dragonCount": {
+          "type": "integer"
+        },
+        "activeDragonName": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "activeDragonSkin": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "activeDragonRarity": {
+          "type": "string",
+          "enum": ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"]
+        },
+        "activeDragonLevel": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "username", "powerRating", "leaguePoints", "dragonCount", "updatedAt"]
+    },
+    "DragonAuction": {
+      "title": "DragonAuction",
+      "description": "Shared multiplayer dragon auction listing without Telegram ID or username PII.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "dragon": {
+          "type": "object"
+        },
+        "rarity": {
+          "type": "string",
+          "enum": ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"]
+        },
+        "startCornPrice": {
+          "type": "integer"
+        },
+        "currentCornPrice": {
+          "type": "integer"
+        },
+        "buyNowStars": {
+          "type": "integer"
+        },
+        "highestBidderUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "highestBidderName": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "bidCount": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "SOLD", "CANCELLED", "CLAIMED"]
+        },
+        "winnerUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "settlementType": {
+          "type": "string",
+          "enum": ["NONE", "BID", "BUY_NOW", "EXPIRED"]
+        },
+        "sellerClaimed": {
+          "type": "boolean"
+        },
+        "buyerClaimed": {
+          "type": "boolean"
+        },
+        "endsAtMs": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "sellerUid",
+        "sellerName",
+        "dragon",
+        "rarity",
+        "startCornPrice",
+        "currentCornPrice",
+        "buyNowStars",
+        "highestBidderUid",
+        "highestBidderName",
+        "bidCount",
+        "status",
+        "winnerUid",
+        "settlementType",
+        "sellerClaimed",
+        "buyerClaimed",
+        "endsAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Alliance": {
+      "title": "Alliance",
+      "description": "Server-managed Swarm alliance document readable strictly by verified members.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "packName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "level": {
+          "type": "integer"
+        },
+        "xp": {
+          "type": "integer"
+        },
+        "totalPower": {
+          "type": "integer"
+        },
+        "membersCount": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "packName", "level", "xp", "totalPower", "membersCount", "updatedAt"]
+    },
+    "AllianceMember": {
+      "title": "AllianceMember",
+      "description": "Server-managed alliance membership record inside /alliances/{allianceId}/members/{uid}.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "allianceId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "role": {
+          "type": "string",
+          "enum": ["LEADER", "OFFICER", "MEMBER"]
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "allianceId", "displayName", "role", "joinedAt"]
+    },
+    "AllianceTreasury": {
+      "title": "AllianceTreasury",
+      "description": "Server/Cloud Functions write-only treasury state inside /alliances/{allianceId}/treasury/{treasuryId}.",
+      "type": "object",
+      "properties": {
+        "allianceId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "treasuryCorn": {
+          "type": "integer"
+        },
+        "vaultGold": {
+          "type": "integer"
+        },
+        "techPointsPool": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["allianceId", "treasuryCorn", "vaultGold", "techPointsPool", "updatedAt"]
+    },
+    "TreasuryAuditLog": {
+      "title": "TreasuryAuditLog",
+      "description": "Immutable server/Cloud Functions audit log for every alliance treasury change (who, when, amount).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "allianceId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "actorUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "actorName": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "action": {
+          "type": "string",
+          "enum": ["DONATE", "BOSS_LOOT", "UPGRADE_TECH", "REWARD_CLAIM", "SUSPICIOUS_REJECTED"]
+        },
+        "resource": {
+          "type": "string",
+          "enum": ["CORN", "GOLD", "STARS"]
+        },
+        "amountDelta": {
+          "type": "integer"
+        },
+        "balanceBefore": {
+          "type": "integer"
+        },
+        "balanceAfter": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "allianceId", "actorUid", "actorName", "action", "resource", "amountDelta", "balanceBefore", "balanceAfter", "createdAt"]
+    },
+    "AllianceMessage": {
+      "title": "AllianceMessage",
+      "description": "Real-time alliance chat message accessible only to verified members of the alliance.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "allianceId": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "allianceId", "senderUid", "senderName", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/test/connection": {
+      "schema": "TestConnection",
+      "description": "Health check document for Firestore client connectivity probe."
+    },
+    "/playerProfiles/{uid}": {
+      "schema": "PlayerProfile",
+      "description": "Owner-only private player profile bound to uid and immutable telegramIdHash."
+    },
+    "/playerSaves/{uid}": {
+      "schema": "PlayerSave",
+      "description": "Owner-only encrypted cloud save document (never readable by other players, never deletable)."
+    },
+    "/leaderboard/{uid}": {
+      "schema": "LeaderboardEntry",
+      "description": "Public read-only, server-written leaderboard collection containing only display names and avatars."
+    },
+    "/dragonAuctions/{auctionId}": {
+      "schema": "DragonAuction",
+      "description": "Live multiplayer Dragon Auction house listings."
+    },
+    "/alliances/{allianceId}": {
+      "schema": "Alliance",
+      "description": "Member-only readable, server-written Swarm Alliance state."
+    },
+    "/alliances/{allianceId}/members/{memberUid}": {
+      "schema": "AllianceMember",
+      "description": "Server-managed alliance membership registry."
+    },
+    "/alliances/{allianceId}/treasury/{treasuryId}": {
+      "schema": "AllianceTreasury",
+      "description": "Server-only writable, member-only readable alliance treasury."
+    },
+    "/alliances/{allianceId}/treasuryAuditLogs/{logId}": {
+      "schema": "TreasuryAuditLog",
+      "description": "Immutable server-written audit trail for every treasury mutation."
+    },
+    "/alliances/{allianceId}/messages/{messageId}": {
+      "schema": "AllianceMessage",
+      "description": "Member-only Swarm Alliance chat feed subcollection."
+    }
+  }
+}

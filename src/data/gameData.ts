@@ -34,6 +34,17 @@ import {
   calculateCustomUpgradeCost,
   calculateDragonFeedCost,
   clampCustomLevel,
+  createDailyAllianceGifts,
+  createInitialAllianceLedger,
+  createInitialAllianceLogs,
+  createInitialAllianceNotifications,
+  createInitialCoopProgress,
+  createInitialJoinConditions,
+  createInitialMemberRoles,
+  createInitialRewardPool,
+  createInitialSwarmDragonState,
+  createInitialTechFunding,
+  createInitialTechLevels,
   getDragonMaxDmdPrice,
   getLevelRequiredFeeds,
   resolveDragonSize,
@@ -1214,40 +1225,28 @@ export const GOD_PATRONS: Record<GodPatronId, { name: string; title: string; col
   zeus: { name: 'زيوس', title: 'سيد البرق', color: '#eab308' },
 };
 
+export const EGG_GRID_TOTAL_SLOTS = 30;
+export const EGG_GRID_INITIAL_UNLOCKED = 10;
+
 export function createInitialGrid(): GridCell[] {
-  const lockedIndices = new Set([0, 7, 48, 55]);
   const presetItems: Partial<Record<number, EggItemType>> = {
+    0: 'egg_1',
     1: 'egg_1',
-    2: 'egg_1',
-    4: 'egg_2',
-    5: 'egg_2',
-    9: 'egg_1',
-    10: 'egg_3',
-    12: 'egg_2',
-    15: 'egg_1',
-    17: 'grapes',
-    18: 'egg_2',
-    20: 'egg_1',
-    22: 'egg_3',
-    24: 'egg_1',
-    26: 'grapes',
-    28: 'egg_2',
-    30: 'egg_1',
-    32: 'egg_2',
-    35: 'chalice',
-    37: 'egg_1',
-    39: 'egg_2',
-    42: 'egg_1',
-    44: 'egg_3',
-    50: 'egg_2',
-    53: 'egg_1',
+    2: 'egg_2',
+    3: 'egg_2',
+    4: 'egg_3',
+    5: 'grapes',
+    6: 'chalice',
   };
 
-  return Array.from({ length: 56 }, (_, index) => ({
-    index,
-    locked: lockedIndices.has(index),
-    item: lockedIndices.has(index) ? null : presetItems[index] ?? null,
-  }));
+  return Array.from({ length: EGG_GRID_TOTAL_SLOTS }, (_, index) => {
+    const locked = index >= EGG_GRID_INITIAL_UNLOCKED;
+    return {
+      index,
+      locked,
+      item: locked ? null : presetItems[index] ?? null,
+    };
+  });
 }
 
 export function createRandomGodOrder(indexSeed = 0): GodOrder {
@@ -1274,6 +1273,7 @@ export function createRandomGodOrder(indexSeed = 0): GodOrder {
 }
 
 export function createInitialMarketListings(): MarketListing[] {
+  const now = Date.now();
   return [
     {
       id: 'mkt_1',
@@ -1287,6 +1287,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 2400,
       starPrice: 35,
       timeLeftSec: 22,
+      endsAt: now + 22000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1301,6 +1302,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 3100,
       starPrice: 42,
       timeLeftSec: 28,
+      endsAt: now + 28000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1315,6 +1317,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 5400,
       starPrice: 68,
       timeLeftSec: 36,
+      endsAt: now + 36000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1329,6 +1332,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 6200,
       starPrice: 75,
       timeLeftSec: 42,
+      endsAt: now + 42000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1343,6 +1347,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 14500,
       starPrice: 135,
       timeLeftSec: 52,
+      endsAt: now + 52000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1358,6 +1363,7 @@ export function createInitialMarketListings(): MarketListing[] {
       cornPrice: 32000,
       starPrice: 280,
       timeLeftSec: 60,
+      endsAt: now + 60000,
       isUserBid: false,
       soldStatus: 'ACTIVE',
     },
@@ -1672,12 +1678,14 @@ export function createInitialGameState(): GameState {
     pack: {
       joined: false,
       packName: 'عش التنانين (Draco)',
-      power: 446,
-      members: 14,
-      treasuryCorn: 18500,
+      motto: 'وحدة التنانين تفتح أبواب المجد وعرش DMD',
+      emblemId: 'dragon_shield',
+      power: 100800,
+      members: 18,
+      treasuryCorn: 125000,
       messages: [
         { id: 'm1', sender: 'DRAGON_LEADER', text: 'مرحباً! طوروا تنانينكم للمستوى 5 وابدأوا تخصيص النجوم!', time: '14:20' },
-        { id: 'm2', sender: 'FERMER_DRACO', text: 'الخانة 4 تفتح بعد وصول تنين واحد لـ LVL 5!', time: '14:22' },
+        { id: 'm2', sender: 'FERMER_DRACO', text: 'تذكروا تسريع تزاوج الإخوة والهجوم على تنين العاصفة!', time: '14:22' },
       ],
       talents: {
         fury: 0,
@@ -1685,6 +1693,40 @@ export function createInitialGameState(): GameState {
         incubation: 0,
         prestige: 0,
       },
+      level: 1,
+      xp: 12500,
+      allianceCoins: 180,
+      contributionTotal: 0,
+      activityPoints: 0,
+      donationsToday: 0,
+      helpsToday: 0,
+      bossLevel: 4,
+      bossHp: 12500,
+      bossMaxHp: 12500,
+      bossAttacksToday: 0,
+      lastBreedHelpAt: 0,
+      claimedActivityChests: [],
+      claimedAllianceQuests: [],
+      questBaselines: { feeds: 0, merges: 0, errands: 0 },
+      gifts: createDailyAllianceGifts(),
+      logs: createInitialAllianceLogs(),
+      coopProgress: createInitialCoopProgress(),
+      claimedCoopGoals: [],
+      memberRoles: createInitialMemberRoles(),
+      kickedMemberIds: [],
+      joinConditions: createInitialJoinConditions(),
+      convertedBlessingIds: [],
+      swarmDragon: createInitialSwarmDragonState(),
+      ledger: createInitialAllianceLedger(),
+      techLevels: createInitialTechLevels(),
+      techFunding: createInitialTechFunding(),
+      activeResearch: null,
+      activeRally: null,
+      occupiedSites: [],
+      mapCooldowns: {},
+      notifications: createInitialAllianceNotifications(),
+      rewardPool: createInitialRewardPool(),
+      lastDividendAt: 0,
     },
     wallet: {
       connected: false,
@@ -1695,6 +1737,7 @@ export function createInitialGameState(): GameState {
       score: 0,
       claimedMilestones: [],
       resetSeconds: 5180,
+      resetAt: now + 5180 * 1000,
     },
     league: {
       points: 100,
@@ -1734,6 +1777,8 @@ export function createInitialGameState(): GameState {
       eggSurgeUntil: 0,
     },
     muted: false,
+    hapticsEnabled: true,
+    dragonMotionEnabled: true,
     lastSavedAt: Date.now(),
   };
 }

@@ -49,6 +49,19 @@ function getTgApp(): TelegramWebAppInstance | null {
   return window.Telegram?.WebApp ?? null;
 }
 
+export function isInsideTelegramWebApp(): boolean {
+  const tg = getTgApp();
+  return Boolean(tg && (tg.initData || tg.initDataUnsafe?.user));
+}
+
+export function getTelegramRawInitData(): string {
+  return getTgApp()?.initData ?? '';
+}
+
+export function getTelegramStartParam(): string {
+  return getTgApp()?.initDataUnsafe?.start_param ?? '';
+}
+
 export function initTelegramWebApp(): () => void {
   const tg = getTgApp();
 
@@ -82,21 +95,83 @@ export function initTelegramWebApp(): () => void {
   };
 }
 
-export function getTelegramUser(): { id?: number; displayName: string; isPremium: boolean } | null {
+export function getTelegramUser(): {
+  id?: number;
+  username?: string;
+  displayName: string;
+  isPremium: boolean;
+} | null {
   const user = getTgApp()?.initDataUnsafe?.user;
   if (!user) return null;
   const rawName = user.username || [user.first_name, user.last_name].filter(Boolean).join('_');
   const sanitized = rawName.replace(/[^\w\u0600-\u06FF.-]/g, '').slice(0, 18);
   return {
     id: user.id,
+    username: user.username?.replace(/[^\w.-]/g, '').slice(0, 32),
     displayName: sanitized || `TAMER_${String(user.id ?? '').slice(-4) || 'TG'}`,
     isPremium: Boolean(user.is_premium),
   };
 }
 
+export async function verifyTelegramSession(): Promise<{
+  verified: boolean;
+  reason?: string;
+  user?: TelegramWebAppUser;
+  telegramIdHash?: string;
+  publicId?: string;
+}> {
+  const initData = getTelegramRawInitData();
+  if (!initData) {
+    return { verified: false, reason: 'NOT_IN_TELEGRAM' };
+  }
+  const claimedId = getTgApp()?.initDataUnsafe?.user?.id;
+  try {
+    const res = await fetch('/api/telegram/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, claimedTelegramId: claimedId }),
+    });
+    if (!res.ok) {
+      return { verified: false, reason: `HTTP_${res.status}` };
+    }
+    const data = (await res.json()) as {
+      verified?: boolean;
+      reason?: string;
+      sessionToken?: string;
+      publicId?: string;
+      telegramIdHash?: string;
+      user?: TelegramWebAppUser;
+    };
+    if (data.verified && data.sessionToken) {
+      const { setVerifiedSessionAuth } = await import('./cryptoVault');
+      setVerifiedSessionAuth({
+        token: data.sessionToken,
+        publicId: data.publicId,
+        telegramIdHash: data.telegramIdHash,
+      });
+    }
+    return {
+      verified: Boolean(data.verified),
+      reason: data.reason,
+      user: data.user,
+      telegramIdHash: data.telegramIdHash,
+      publicId: data.publicId,
+    };
+  } catch {
+    return { verified: false, reason: 'NETWORK_ERROR' };
+  }
+}
+
+let telegramHapticsEnabled = true;
+
+export function setTelegramHapticsEnabled(enabled: boolean): void {
+  telegramHapticsEnabled = enabled;
+}
+
 export function triggerTelegramHaptic(
   kind: 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error'
 ): void {
+  if (!telegramHapticsEnabled) return;
   const haptics = getTgApp()?.HapticFeedback;
   if (!haptics) return;
   try {

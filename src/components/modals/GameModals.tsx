@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   Check,
+  Cloud,
   Crown,
   Flame,
   Gift,
@@ -10,6 +12,7 @@ import {
   Send,
   Shield,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   TrendingUp,
   Volume2,
@@ -79,7 +82,14 @@ interface GameModalsProps {
   onToggleWalletConnect: () => void;
   onSwapWallet: (direction: 'CORN_TO_STARS' | 'CORN_TO_GOLD') => void;
   onToggleMute: () => void;
+  onToggleHaptics: () => void;
+  onToggleDragonMotion: () => void;
   onBackToTitle: () => void;
+  isTelegramVerified?: boolean;
+  isCloudConnected?: boolean;
+  cloudUserEmail?: string | null;
+  onSignInGoogle?: () => void;
+  onSignOutGoogle?: () => void;
 }
 
 export const GameModals: React.FC<GameModalsProps> = ({
@@ -103,7 +113,14 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onToggleWalletConnect,
   onSwapWallet,
   onToggleMute,
+  onToggleHaptics,
+  onToggleDragonMotion,
   onBackToTitle,
+  isTelegramVerified = false,
+  isCloudConnected = false,
+  cloudUserEmail = null,
+  onSignInGoogle,
+  onSignOutGoogle,
 }) => {
   const [packMsgInput, setPackMsgInput] = useState('');
   const [packSubTab, setPackSubTab] = useState<'CHAT' | 'TALENTS' | 'FORGE'>(packInitialSubTab);
@@ -157,7 +174,11 @@ export const GameModals: React.FC<GameModalsProps> = ({
             <h3 className="font-display text-xl font-black tracking-wide text-white">البطولة الكبرى</h3>
             <p className="text-xs text-slate-300 mt-0.5 font-mono-num">
               نقاطك: <strong className="text-amber-300">{state.tournament.score}</strong> · ينتهي خلال{' '}
-              {formatTimer(state.tournament.resetSeconds)}
+              {formatTimer(
+                state.tournament.resetAt
+                  ? Math.max(0, Math.floor((state.tournament.resetAt - nowTs) / 1000))
+                  : state.tournament.resetSeconds
+              )}
             </p>
           </div>
 
@@ -1029,39 +1050,146 @@ export const GameModals: React.FC<GameModalsProps> = ({
       )}
 
       {/* 8. PAUSE / SETTINGS MODAL */}
-      {modal === 'PAUSE' && (
-        <div className="w-full max-w-sm bg-[#161923] border border-slate-700 rounded-3xl p-6 space-y-4 text-center relative">
-          <button
-            onClick={onClose}
-            aria-label="إغلاق"
-            className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-          <Sparkles className="w-10 h-10 text-amber-400 mx-auto" />
-          <h3 className="font-display text-xl font-black text-white">إيقاف مؤقت · الإعدادات</h3>
-          <div className="space-y-2.5">
+      {modal === 'PAUSE' && (() => {
+        const soundOn = !state.muted;
+        const hapticsOn = state.hapticsEnabled ?? true;
+        const motionOn = state.dragonMotionEnabled ?? true;
+        return (
+          <div className="w-full max-w-sm bg-[#161923] border border-slate-700 rounded-3xl p-5 sm:p-6 space-y-4 text-center relative">
             <button
-              onClick={onToggleMute}
-              className="w-full py-3 rounded-2xl bg-slate-900 border border-slate-700 text-white font-bold text-sm flex items-center justify-center gap-2 hover:border-amber-400 cursor-pointer"
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="absolute top-3 left-3 w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/70 cursor-pointer"
             >
-              {state.muted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
-              <span>{state.muted ? 'تشغيل المؤثرات الصوتية' : 'كتم المؤثرات الصوتية'}</span>
+              <X className="w-5 h-5" />
             </button>
-            <button
-              onClick={onBackToTitle}
-              className="w-full py-3 rounded-2xl bg-slate-900 border border-slate-700 text-slate-200 font-bold text-sm flex items-center justify-center gap-2 hover:border-slate-500 cursor-pointer"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>العودة لشاشة البداية</span>
-            </button>
-            <div className="w-full py-2.5 px-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>بياناتك وتقدمك محفوظة تلقائياً ✓</span>
+            <Sparkles className="w-9 h-9 text-amber-400 mx-auto" />
+            <h3 className="font-display text-xl font-black text-white">الإعدادات والأداء</h3>
+            <div className="space-y-2.5 text-right">
+              <button
+                type="button"
+                onClick={onToggleMute}
+                className="w-full px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {soundOn ? (
+                    <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-rose-400 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-white">المؤثرات الصوتية</div>
+                    <div className="text-[10px] text-slate-400">زئير التنين وأصوات النقر والمكافآت</div>
+                  </div>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 ${
+                    soundOn ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {soundOn ? 'مُفعّل' : 'مُتوقف'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleHaptics}
+                className="w-full px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Smartphone className={`w-4 h-4 shrink-0 ${hapticsOn ? 'text-emerald-400' : 'text-slate-500'}`} />
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-white">الاهتزاز</div>
+                    <div className="text-[10px] text-slate-400">اهتزاز تفاعلي عند الإطعام والانتصارات</div>
+                  </div>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 ${
+                    hapticsOn ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {hapticsOn ? 'مُفعّل' : 'مُتوقف'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleDragonMotion}
+                className="w-full px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 hover:border-amber-400 flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Activity className={`w-4 h-4 shrink-0 ${motionOn ? 'text-sky-400' : 'text-amber-400'}`} />
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-white">حركة التنين التفاعلية</div>
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      {motionOn
+                        ? 'نشط: محاكاة حية (طيران، مشي، نوم)'
+                        : 'متوقف: مجسم ثابت لتوفير الإنترنت والأداء'}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 ${
+                    motionOn ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}
+                >
+                  {motionOn ? 'نشط' : 'ثابت'}
+                </span>
+              </button>
+
+              {(onSignInGoogle || onSignOutGoogle) && (
+                <div className="rounded-2xl bg-slate-900 border border-sky-500/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-black text-white flex items-center gap-1.5">
+                      <Cloud className="w-4 h-4 text-sky-400" />
+                      <span>المزامنة السحابية والمزاد</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-300">
+                      {isTelegramVerified ? 'تيليجرام موثق ✓' : 'متصفح'}
+                    </span>
+                  </div>
+                  {isCloudConnected ? (
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-sky-300 truncate">{cloudUserEmail || 'الحساب متصل ✓'}</span>
+                      {onSignOutGoogle && (
+                        <button
+                          type="button"
+                          onClick={onSignOutGoogle}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white font-bold text-[10px] cursor-pointer shrink-0"
+                        >
+                          تسجيل خروج
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    onSignInGoogle && (
+                      <button
+                        type="button"
+                        onClick={onSignInGoogle}
+                        className="w-full py-2 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-200 font-black text-xs hover:bg-sky-500/30 cursor-pointer"
+                      >
+                        ربط حساب جوجل للحفظ السحابي والمزاد
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={onBackToTitle}
+                className="w-full py-3 rounded-2xl bg-slate-900 border border-slate-700 text-slate-200 font-bold text-sm flex items-center justify-center gap-2 hover:border-slate-500 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>العودة لشاشة البداية</span>
+              </button>
+              <div className="w-full py-2.5 px-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>بياناتك وتقدمك محفوظة تلقائياً ✓</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
