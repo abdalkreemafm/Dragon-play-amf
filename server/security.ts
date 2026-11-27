@@ -11,6 +11,8 @@ export interface VerifiedTelegramUser {
 }
 
 export interface SessionPayload {
+  actorKey: string;
+  authMethod: 'telegram';
   tgId: number;
   publicId: string;
   displayName: string;
@@ -27,6 +29,23 @@ export interface EncryptedEnvelope {
 }
 
 export type ServerRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+export type ServerAllianceRole = 'LEADER' | 'DEPUTY' | 'ELITE' | 'MEMBER';
+export type ServerAllianceVisibility = 'PUBLIC' | 'SECRET';
+export const ALLIANCE_ROLE_WEIGHT: Record<ServerAllianceRole, number> = {
+  MEMBER: 1,
+  ELITE: 2,
+  DEPUTY: 3,
+  LEADER: 4,
+};
+export type ServerAllianceEmblemId =
+  | 'dragon_shield'
+  | 'royal_crown'
+  | 'phoenix_wing'
+  | 'sun_pyramid'
+  | 'storm_fang'
+  | 'eternal_flame'
+  | 'obsidian_sword'
+  | 'emerald_throne';
 
 export interface ServerDragon {
   id: string;
@@ -38,10 +57,30 @@ export interface ServerDragon {
   skillLevel: number;
   trainingLevel: number;
   gear: string;
+  aura?: string;
   sizeTier: 'NORMAL' | 'XL' | 'XXL';
+  powerRating?: number;
+}
+
+export interface DragonAuctionValuation {
+  upgradeInvestmentEnergy: number;
+  breakdown: {
+    levelFeedsEnergy: number;
+    customStarsEquivalent: number;
+    skillsEquivalent: number;
+    trainingEnergy: number;
+    sizeAndGearBonus: number;
+  };
+  minStartCorn: number;
+  maxStartCorn: number;
+  suggestedStartCorn: number;
+  minBuyNowStars: number;
+  maxBuyNowStars: number;
+  suggestedBuyNowStars: number;
 }
 
 export interface ServerPlayerState {
+  actorKey: string;
   publicId: string;
   tgIdHash: string;
   displayName: string;
@@ -49,14 +88,22 @@ export interface ServerPlayerState {
   corn: number;
   duckGold: number;
   stars: number;
+  amfTotal: number;
   leaguePoints: number;
+  tournamentScore: number;
+  totalFeeds: number;
   allianceId: string | null;
-  allianceRole: 'LEADER' | 'OFFICER' | 'MEMBER' | null;
+  allianceRole: ServerAllianceRole | null;
   allianceTaxLv: number;
   allianceFuryLv: number;
   donationsToday: number;
   bossAttacksToday: number;
+  donatedEnergyTotal: number;
+  donatedTechTotal: number;
+  rallyScoreTotal: number;
+  dailyActivityPoints: number;
   lastDonationAt: number;
+  lastSeenAt: number;
   dragons: ServerDragon[];
   updatedAt: number;
 }
@@ -78,9 +125,41 @@ export interface TreasuryAuditEntry {
   entryHash: string;
 }
 
+export interface ServerAllianceJoinConditions {
+  minPower: number;
+  minDragons: number;
+  minDragonLevel: number;
+  autoAccept: boolean;
+}
+
+export interface ServerAllianceMessage {
+  id: string;
+  senderPublicId: string;
+  sender: string;
+  text: string;
+  time: string;
+  createdAt: number;
+}
+
+export interface ServerAllianceLog {
+  id: string;
+  type: 'JOIN' | 'DONATE' | 'BOSS' | 'COOP' | 'HELP' | 'ROLE' | 'RESEARCH' | 'RALLY' | 'DIVIDEND' | 'DRAGON';
+  actor: string;
+  message: string;
+  time: string;
+  timestamp: number;
+}
+
 export interface ServerAllianceState {
   id: string;
   packName: string;
+  motto: string;
+  emblemId: ServerAllianceEmblemId;
+  visibility?: ServerAllianceVisibility;
+  inviteCode?: string;
+  leaderPublicId: string;
+  leaderName: string;
+  joinConditions: ServerAllianceJoinConditions;
   level: number;
   xp: number;
   power: number;
@@ -91,7 +170,11 @@ export interface ServerAllianceState {
   bossHp: number;
   bossMaxHp: number;
   memberPublicIds: string[];
+  memberRoles: Record<string, ServerAllianceRole>;
+  messages: ServerAllianceMessage[];
+  logs: ServerAllianceLog[];
   auditLogs: TreasuryAuditEntry[];
+  createdAt: number;
 }
 
 export interface ServerDonationTierSpec {
@@ -318,6 +401,8 @@ export function issueSignedSessionToken(user: VerifiedTelegramUser, ttlSec = 432
     user.first_name || user.username || `TAMER_${String(user.id).slice(-4)}`
   );
   const payload: SessionPayload = {
+    actorKey: `tg:${user.id}`,
+    authMethod: 'telegram',
     tgId: user.id,
     publicId: toPublicPlayerId(user.id),
     displayName,
@@ -357,18 +442,27 @@ export function verifySignedSessionToken(
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
-  if (!payload || !Number.isSafeInteger(payload.tgId) || payload.exp < nowSec) {
+  if (
+    !payload ||
+    typeof payload.actorKey !== 'string' ||
+    !payload.actorKey ||
+    typeof payload.publicId !== 'string' ||
+    !payload.exp ||
+    payload.exp < nowSec
+  ) {
     return { valid: false, reason: 'SESSION_EXPIRED' };
   }
 
   if (claimedTelegramId !== undefined && claimedTelegramId !== null && String(claimedTelegramId).trim() !== '') {
-    if (String(claimedTelegramId).trim() !== String(payload.tgId)) {
+    if (!payload.tgId || String(claimedTelegramId).trim() !== String(payload.tgId)) {
       return { valid: false, reason: 'TELEGRAM_ID_MISMATCH' };
     }
   }
 
   return { valid: true, session: payload };
 }
+
+
 
 export interface RateLimitDecision {
   allowed: boolean;
@@ -706,6 +800,7 @@ export function validateAndResolveBattle(params: {
   rivalPower: number;
   selectedDragonIds?: string[];
   clientClaimedPower?: number;
+  isStarEventActive?: boolean;
   nowMs?: number;
 }): {
   ok: true;
@@ -758,7 +853,7 @@ export function validateAndResolveBattle(params: {
     }
 
     const rewardCorn = isKill ? 520 : 180;
-    const rewardStars = isKill ? 4 : 0;
+    const rewardStars = 0;
     const treasuryBefore = alliance.treasuryCorn;
     const treasuryLoot = isKill ? 1800 : 350;
     alliance.treasuryCorn += treasuryLoot;
@@ -800,7 +895,7 @@ export function validateAndResolveBattle(params: {
   // ARENA resolution strictly from serverComputedPower vs boundedRivalPower
   const won = serverComputedPower >= boundedRivalPower * 0.92;
   const rewardCorn = won ? Math.min(1800, 120 + Math.round(boundedRivalPower * 0.25)) : 25;
-  const rewardStars = won ? 2 : 0;
+  const rewardStars = won && params.isStarEventActive ? 2 : 0;
   const leaguePointsDelta = won ? 25 : 5;
 
   player.corn += rewardCorn;
@@ -824,14 +919,127 @@ export function validateAndResolveBattle(params: {
   };
 }
 
-export function toPublicLeaderboardRow(player: ServerPlayerState) {
+const RARITY_FEED_BASE_COST: Record<ServerRarity, number> = {
+  COMMON: 12,
+  UNCOMMON: 22,
+  RARE: 42,
+  EPIC: 85,
+  LEGENDARY: 170,
+};
+
+const RARITY_BASE_LIST_FLOOR: Record<ServerRarity, number> = {
+  COMMON: 320,
+  UNCOMMON: 850,
+  RARE: 2100,
+  EPIC: 5200,
+  LEGENDARY: 12500,
+};
+
+const RARITY_BASE_STAR_FLOOR: Record<ServerRarity, number> = {
+  COMMON: 5,
+  UNCOMMON: 10,
+  RARE: 20,
+  EPIC: 40,
+  LEGENDARY: 80,
+};
+
+export function computeDragonUpgradeValuation(dragon: ServerDragon): DragonAuctionValuation {
+  const rarity: ServerRarity = dragon.rarity in RARITY_FEED_BASE_COST ? dragon.rarity : 'COMMON';
+  const level = Math.max(1, Math.min(5, Math.round(dragon.level || 1)));
+  const customLevel = Math.max(0, Math.min(10, Math.round(dragon.customLevel || 0)));
+  const skillLevel = Math.max(1, Math.min(10, Math.round(dragon.skillLevel || 1)));
+  const trainingLevel = Math.max(0, Math.min(1000, Math.round(dragon.trainingLevel || 0)));
+  const sizeMult = dragon.sizeTier === 'XXL' ? 1.85 : dragon.sizeTier === 'XL' ? 1.35 : 1;
+
+  // 1) Cumulative Energy spent feeding from level 1 -> current level
+  const baseFeed = RARITY_FEED_BASE_COST[rarity];
+  let levelFeedsEnergy = 0;
+  for (let lv = 1; lv < level; lv += 1) {
+    const reqClicks = Math.min(20, 4 + lv * 2);
+    const clickCost = Math.round(baseFeed * Math.pow(1.42, lv - 1));
+    levelFeedsEnergy += reqClicks * clickCost;
+  }
+  levelFeedsEnergy += Math.round(baseFeed * 4);
+
+  // 2) Star customizations (★1..10) converted to fair energy equivalent (1 ★ ~ 95 ⚡)
+  let totalCustomStars = 0;
+  for (let c = 0; c < customLevel; c += 1) {
+    totalCustomStars += 10 * (c + 1);
+  }
+  const customStarsEquivalent = Math.round(totalCustomStars * 95);
+
+  // 3) Skill upgrades (level 2..10)
+  let skillStars = 0;
+  for (let s = 1; s < skillLevel; s += 1) {
+    skillStars += 4 + s * 3;
+  }
+  const skillsEquivalent = Math.round(skillStars * 95);
+
+  // 4) Training energy (progressive combat training)
+  let trainingEnergy = 0;
+  const cappedTrain = Math.min(trainingLevel, 80);
+  for (let t = 0; t < cappedTrain; t += 1) {
+    trainingEnergy += Math.round(110 * Math.pow(1.09, Math.min(t, 45)));
+  }
+
+  // 5) Size tier + gear premium
+  const gearBonus = dragon.gear && dragon.gear !== 'none' ? 650 : 0;
+  const rawTotalBeforeSize =
+    RARITY_BASE_LIST_FLOOR[rarity] + levelFeedsEnergy + customStarsEquivalent + skillsEquivalent + trainingEnergy;
+  const sizeAndGearBonus = Math.round(rawTotalBeforeSize * (sizeMult - 1) + gearBonus);
+
+  const upgradeInvestmentEnergy = Math.max(
+    RARITY_BASE_LIST_FLOOR[rarity],
+    Math.round(rawTotalBeforeSize + sizeAndGearBonus)
+  );
+
+  const minStartCorn = Math.max(RARITY_BASE_LIST_FLOOR[rarity], Math.round(upgradeInvestmentEnergy * 0.72));
+  const suggestedStartCorn = Math.max(minStartCorn + 50, Math.round(upgradeInvestmentEnergy * 1.15));
+  const maxStartCorn = Math.max(suggestedStartCorn + 200, Math.round(upgradeInvestmentEnergy * 2.4));
+
+  const starFloor = RARITY_BASE_STAR_FLOOR[rarity];
+  const minBuyNowStars = Math.max(
+    starFloor,
+    Math.round((starFloor + totalCustomStars * 0.35 + level * 4 + skillLevel * 2) * (dragon.sizeTier === 'XXL' ? 1.5 : dragon.sizeTier === 'XL' ? 1.25 : 1))
+  );
+  const suggestedBuyNowStars = Math.round(minBuyNowStars * 1.45);
+  const maxBuyNowStars = Math.max(suggestedBuyNowStars + 15, Math.round(minBuyNowStars * 2.8));
+
+  return {
+    upgradeInvestmentEnergy,
+    breakdown: {
+      levelFeedsEnergy,
+      customStarsEquivalent,
+      skillsEquivalent,
+      trainingEnergy,
+      sizeAndGearBonus,
+    },
+    minStartCorn,
+    maxStartCorn,
+    suggestedStartCorn,
+    minBuyNowStars,
+    maxBuyNowStars,
+    suggestedBuyNowStars,
+  };
+}
+
+export function toPublicLeaderboardRow(
+  player: ServerPlayerState,
+  alliancesMap?: Record<string, ServerAllianceState>
+) {
   const lead = player.dragons[0];
+  const allianceName =
+    player.allianceId && alliancesMap?.[player.allianceId] ? alliancesMap[player.allianceId].packName : '';
   return {
     publicId: player.publicId,
     displayName: player.displayName,
     avatarUrl: player.avatarUrl || lead?.skin || 'aqua',
+    allianceName,
     powerRating: recomputeTotalPlayerPower(player),
     leaguePoints: player.leaguePoints,
+    dmdTotal: Number((player.amfTotal || 0).toFixed(2)),
+    tournamentScore: player.tournamentScore || 0,
+    totalFeeds: player.totalFeeds || 0,
     dragonCount: player.dragons.length,
     activeDragonName: lead?.name ?? 'تنين البداية',
     activeDragonSkin: lead?.skin ?? 'aqua',

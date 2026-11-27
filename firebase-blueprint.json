@@ -273,6 +273,10 @@
           "minLength": 1,
           "maxLength": 40
         },
+        "visibility": {
+          "type": "string",
+          "enum": ["PUBLIC", "SECRET"]
+        },
         "level": {
           "type": "integer"
         },
@@ -314,7 +318,7 @@
         },
         "role": {
           "type": "string",
-          "enum": ["LEADER", "OFFICER", "MEMBER"]
+          "enum": ["LEADER", "DEPUTY", "ELITE", "MEMBER"]
         },
         "joinedAt": {
           "type": "string",

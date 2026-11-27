@@ -230,9 +230,26 @@ export const DRAGON_SLOTS: DragonSlotMeta[] = [
   },
 ];
 
+export function getDragonSlotMeta(slotIndex: number): DragonSlotMeta {
+  const safeIdx = Math.max(0, Math.floor(slotIndex));
+  if (safeIdx < DRAGON_SLOTS.length) {
+    return DRAGON_SLOTS[safeIdx];
+  }
+  return {
+    slotIndex: safeIdx,
+    label: `الخانة ${safeIdx + 1}`,
+    efficiency: 0.5,
+    efficiencyPct: 50,
+    starCost: 600 + (safeIdx - 7) * 150,
+    requirementText: 'متاح للفتح بالنجوم ★',
+  };
+}
+
 export function checkSlotUnlockEligibility(slotIndex: number, state: GameState) {
-  const meta = DRAGON_SLOTS[slotIndex];
-  if (!meta) return { metCondition: false, hasEnoughStars: false, canUnlock: false, reason: 'خانة غير صالحة' };
+  if (slotIndex < 0 || !Number.isInteger(slotIndex)) {
+    return { metCondition: false, hasEnoughStars: false, canUnlock: false, reason: 'خانة غير صالحة' };
+  }
+  const meta = getDragonSlotMeta(slotIndex);
   if (slotIndex < state.unlockedSlots) {
     return { metCondition: true, hasEnoughStars: true, canUnlock: false, reason: 'مفتوحة بالفعل' };
   }
@@ -295,7 +312,7 @@ export const STORE_PACKAGES: StorePackage[] = [
   {
     id: 'pkg_stars_starter',
     title: 'حزمة نجوم التخصيص',
-    desc: '+80 نجمة ★ و +1,200 طاقة إطعام لتسريع الوصول للمرحلة 5',
+    desc: '+80 نجمة ★ و +1,200 طعام تنين',
     priceUsd: 1.99,
     starsReward: 80,
     energyReward: 1200,
@@ -305,7 +322,7 @@ export const STORE_PACKAGES: StorePackage[] = [
   {
     id: 'pkg_rare_hatchery',
     title: 'صندوق البيض الملكي',
-    desc: '+220 نجمة ★ و 4 بيضات نادرة مع معزز دمج فوري',
+    desc: '+220 نجمة ★ و 4 بيضات نادرة مع معزز دمج',
     priceUsd: 4.99,
     starsReward: 220,
     energyReward: 3500,
@@ -315,7 +332,7 @@ export const STORE_PACKAGES: StorePackage[] = [
   {
     id: 'pkg_legendary_dragon',
     title: 'صندوق التنين الإمبراطوري الأسطوري',
-    desc: 'تنين أسطوري بمستوى 3 وتاج المجد + 400 نجمة ★ جاهز للهيمنة',
+    desc: 'تنين أسطوري بمستوى 3 وتاج المجد + 400 نجمة ★',
     priceUsd: 9.99,
     starsReward: 400,
     energyReward: 8000,
@@ -340,13 +357,18 @@ export const ACTIVE_SEASON: SeasonConfig = {
   premiumPriceUsd: 4.99,
   premiumFallbackStarsCost: 60,
   bonusDescriptionAr: 'مضاعفة مكافآت الدوري وتنين إمبراطوري أسطوري عند المستوى 15',
+  dropRates: {
+    common: 0.58,
+    rare: 0.32,
+    epic: 0.10,
+  },
 };
 
 export const LIVE_EVENTS_REGISTRY: LiveEventConfig[] = [
   {
     id: 'evt_arena_stars_x2',
-    title: 'فعالية نهاية الأسبوع: مضاعفة نجوم الحلبة ×2',
-    desc: 'كل فوز في الحلبة أو السباق يمنح ضعف مكافأة النجوم لتسريع التخصيص حتى ★100!',
+    title: 'حدث خاص: نجوم الحلبة ×2',
+    desc: 'تفتح نزالات الحلبة والسباق ربح النجوم المضاعف طوال الحدث!',
     starBonusMult: 2,
     arenaEnergyMult: 1,
     templeEnergyMult: 1,
@@ -354,8 +376,8 @@ export const LIVE_EVENTS_REGISTRY: LiveEventConfig[] = [
   },
   {
     id: 'evt_temple_fever',
-    title: 'فعالية حُمّى التفقيس والمعبد',
-    desc: 'مكافآت طاقة +35% من قرابين المعبد و+25% طاقة من نزالات الحلبة!',
+    title: 'حدث حُمّى التفقيس والمعبد',
+    desc: '+35% طعام تنين من قرابين المعبد و +25% من الحلبة.',
     starBonusMult: 1,
     arenaEnergyMult: 1.25,
     templeEnergyMult: 1.35,
@@ -367,10 +389,10 @@ export const LIVE_EVENTS_REGISTRY: LiveEventConfig[] = [
 export const WEEKEND_EVENTS = LIVE_EVENTS_REGISTRY;
 
 export const TOURNAMENT_MILESTONES: TournamentMilestoneConfig[] = [
-  { score: 40, labelAr: '+150 طاقة ⚡', reward: { corn: 150 } },
-  { score: 100, labelAr: '+250 طاقة و +4 ★', reward: { corn: 250, stars: 4 } },
-  { score: 250, labelAr: '+500 طاقة و +12 ★ و +2 💎', reward: { corn: 500, stars: 12, duckGold: 2 } },
-  { score: 400, labelAr: '+800 طاقة و +20 ★ و +4 💎', reward: { corn: 800, stars: 20, duckGold: 4 } },
+  { score: 40, labelAr: '+150 طعام 🍖', reward: { corn: 150 } },
+  { score: 100, labelAr: '+250 طعام و +4 ★', reward: { corn: 250, stars: 4 } },
+  { score: 250, labelAr: '+500 طعام و +12 ★ و +2 💎', reward: { corn: 500, stars: 12, duckGold: 2 } },
+  { score: 400, labelAr: '+800 طعام و +20 ★ و +4 💎', reward: { corn: 800, stars: 20, duckGold: 4 } },
 ];
 
 export const TREASURE_RACE_STEPS: TreasureStepConfig[] = [
@@ -405,40 +427,40 @@ export const HONOR_PACKS_REGISTRY: HonorPackConfig[] = [
     id: 'honor_p1',
     titleAr: 'حزمة الشرف البرونزية',
     costLetters: 3,
-    rewardDescAr: '+200 طاقة و +6 ★',
-    reward: { corn: 200, stars: 6 },
+    rewardDescAr: '+260 طعام تنين و +15 🏅',
+    reward: { corn: 260, medals: 15 },
   },
   {
     id: 'honor_p2',
     titleAr: 'حزمة الشرف الفضية',
     costLetters: 6,
-    rewardDescAr: '+480 طاقة و +14 ★ و +3 💎',
-    reward: { corn: 480, stars: 14, duckGold: 3 },
+    rewardDescAr: '+620 طعام تنين و +4 💎 و +25 🏅',
+    reward: { corn: 620, duckGold: 4, medals: 25 },
   },
   {
     id: 'honor_p3',
     titleAr: 'حزمة الشرف الإمبراطورية',
     costLetters: 12,
-    rewardDescAr: '+1,100 طاقة و +30 ★ و +6 💎 وبيضة [5]',
-    reward: { corn: 1100, stars: 30, duckGold: 6, eggs: ['egg_5'] },
+    rewardDescAr: '+1,400 طعام تنين و +8 💎 وبيضة [5]',
+    reward: { corn: 1400, duckGold: 8, eggs: ['egg_5'] },
   },
 ];
 
 export const HEART_MILESTONES_REGISTRY: HeartMilestoneConfig[] = [
   {
     targetHearts: 500,
-    rewardLabelAr: '+240 طاقة و +6 ★',
-    reward: { corn: 240, stars: 6 },
+    rewardLabelAr: '+320 طعام تنين و +2 💎',
+    reward: { corn: 320, duckGold: 2 },
   },
   {
     targetHearts: 1200,
-    rewardLabelAr: '+550 طاقة و +14 ★ و +3 💎',
-    reward: { corn: 550, stars: 14, duckGold: 3 },
+    rewardLabelAr: '+720 طعام تنين و +5 💎 و +20 🏅',
+    reward: { corn: 720, duckGold: 5, medals: 20 },
   },
   {
     targetHearts: 2500,
-    rewardLabelAr: '+1,200 طاقة و +28 ★ وبيضة [6]',
-    reward: { corn: 1200, stars: 28, eggs: ['egg_6'] },
+    rewardLabelAr: '+1,500 طعام تنين و +8 💎 وبيضة [6]',
+    reward: { corn: 1500, duckGold: 8, eggs: ['egg_6'] },
   },
 ];
 
@@ -449,8 +471,8 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'أطعم التنانين 50 مرة',
     metric: 'feeds',
     target: 50,
-    rewardLabelAr: '+5 ★ و +200 ⚡',
-    reward: { stars: 5, corn: 200 },
+    rewardLabelAr: '+260 طعام تنين و +2 💎',
+    reward: { corn: 260, duckGold: 2 },
   },
   {
     id: 'ach_merge_60',
@@ -458,8 +480,8 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'ادمج 60 بيضة تنين',
     metric: 'merges',
     target: 60,
-    rewardLabelAr: '+8 ★ و +320 ⚡',
-    reward: { stars: 8, corn: 320 },
+    rewardLabelAr: '+420 طعام تنين و +15 🏅',
+    reward: { corn: 420, medals: 15 },
   },
   {
     id: 'ach_errand_15',
@@ -467,8 +489,8 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'سلّم 15 قرباناً للمعبد',
     metric: 'errands',
     target: 15,
-    rewardLabelAr: '+10 ★ و +3 💎',
-    reward: { stars: 10, duckGold: 3 },
+    rewardLabelAr: '+550 طعام تنين و +4 💎',
+    reward: { corn: 550, duckGold: 4 },
   },
   {
     id: 'ach_arena_10',
@@ -476,8 +498,8 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'اربح 10 نزالات في الحلبة',
     metric: 'wins',
     target: 10,
-    rewardLabelAr: '+15 ★ و +20 🏅',
-    reward: { stars: 15, medals: 20 },
+    rewardLabelAr: '+680 طعام تنين و +30 🏅',
+    reward: { corn: 680, medals: 30 },
   },
   {
     id: 'ach_star_10',
@@ -485,8 +507,8 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'صل بأي تنين إلى تخصيص ★5',
     metric: 'maxCustom',
     target: 5,
-    rewardLabelAr: '+20 ★ و +5 💎',
-    reward: { stars: 20, duckGold: 5 },
+    rewardLabelAr: '+950 طعام تنين و +7 💎',
+    reward: { corn: 950, duckGold: 7 },
   },
   {
     id: 'ach_star_50',
@@ -494,49 +516,49 @@ export const ACHIEVEMENTS_REGISTRY: AchievementRegistryItem[] = [
     descAr: 'أكمل تخصيص تنين للمستوى ★10 وأرسله للخزانة',
     metric: 'maxCustom',
     target: 10,
-    rewardLabelAr: '+45 ★ و +12 💎 وبيضة [6]',
-    reward: { stars: 45, duckGold: 12, eggs: ['egg_6'] },
+    rewardLabelAr: '+1,800 طعام تنين و +15 💎 وبيضة [6]',
+    reward: { corn: 1800, duckGold: 15, eggs: ['egg_6'] },
   },
 ];
 
 export const SOCIAL_TASKS_REGISTRY: SocialTaskConfig[] = [
   {
     id: 'soc_tg_channel',
-    titleAr: 'انضم لقناة مجتمع DRAGON × DMD على تيليجرام',
-    rewardDescAr: '+5 ★ و +180 طاقة',
-    url: 'https://t.me/dragon_dmd_community',
-    reward: { stars: 5, corn: 180 },
+    titleAr: 'انضم لقناة مجتمع DRAGON × AMF على تيليجرام',
+    rewardDescAr: '+260 طعام تنين و +10 🏅',
+    url: 'https://t.me/dragon_amf_community',
+    reward: { corn: 260, medals: 10 },
   },
   {
     id: 'soc_tg_chat',
     titleAr: 'شارك في دردشة المربين الرسمية',
-    rewardDescAr: '+4 ★ و +140 طاقة',
-    url: 'https://t.me/dragon_dmd_chat',
-    reward: { stars: 4, corn: 140 },
+    rewardDescAr: '+200 طعام تنين و +2 💎',
+    url: 'https://t.me/dragon_amf_chat',
+    reward: { corn: 200, duckGold: 2 },
   },
   {
     id: 'soc_x_follow',
     titleAr: 'تابع أخبار المواسم والتحديثات',
-    rewardDescAr: '+5 ★ و +2 💎',
+    rewardDescAr: '+240 طعام تنين و +3 💎',
     url: 'https://x.com',
-    reward: { stars: 5, duckGold: 2 },
+    reward: { corn: 240, duckGold: 3 },
   },
 ];
 
 export const PROMO_CODES_REGISTRY: PromoCodeReward[] = [
   { code: 'DRAGON', labelAr: 'حزمة التنين الترحيبية', reward: { corn: 320, stars: 8, duckGold: 2 } },
-  { code: 'DMD2025', labelAr: 'ذخيرة موسم عرش الجمر', reward: { corn: 450, stars: 12, medals: 15 } },
+  { code: 'AMF2025', labelAr: 'ذخيرة موسم عرش الجمر', reward: { corn: 450, stars: 12, medals: 15 } },
   { code: 'ARENA', labelAr: 'شحنة فرسان الحلبة', reward: { corn: 280, stars: 7, hammerBoosters: 1 } },
   { code: 'VIP', labelAr: 'تذكار النخبة الملكي', reward: { corn: 550, stars: 15, duckGold: 4, autoMergeBoosters: 1 } },
 ];
 
 export const WHEEL_REWARDS_REGISTRY: WheelRewardSegment[] = [
-  { id: 'w_energy_180', label: '+180 طاقة ⚡', shortLabel: '+180 ⚡', color: '#0284c7', reward: { corn: 180 } },
-  { id: 'w_stars_6', label: '+6 نجوم ★', shortLabel: '+6 ★', color: '#d97706', reward: { stars: 6 } },
+  { id: 'w_energy_180', label: '+220 طعام تنين 🍖', shortLabel: '+220 🍖', color: '#0284c7', reward: { corn: 220 } },
+  { id: 'w_corn_320', label: '+320 طعام تنين 🍖', shortLabel: '+320 🍖', color: '#d97706', reward: { corn: 320 } },
   { id: 'w_gold_4', label: '+4 ذهب تنانين 💎', shortLabel: '+4 💎', color: '#7c3aed', reward: { duckGold: 4 } },
   { id: 'w_egg_4', label: 'بيضة الزمرد [4] 🥚', shortLabel: 'بيضة [4]', color: '#059669', reward: { eggs: ['egg_4'] } },
   { id: 'w_medals_18', label: '+18 وسام قتال 🏅', shortLabel: '+18 🏅', color: '#e11d48', reward: { medals: 18 } },
-  { id: 'w_jackpot', label: 'جائزة كبرى (+300⚡ و +10★)', shortLabel: 'كبرى ★', color: '#f59e0b', reward: { corn: 300, stars: 10, duckGold: 2 } },
+  { id: 'w_jackpot', label: 'جائزة كبرى (+500 طعام و +5💎)', shortLabel: 'كبرى 💎', color: '#f59e0b', reward: { corn: 500, duckGold: 5, medals: 20 } },
 ];
 
 export const RIVALS_CATALOG: RivalProfile[] = [
@@ -869,9 +891,9 @@ export const LEAGUE_TIERS: LeagueTierMeta[] = [
     color: 'text-orange-300',
     bg: 'bg-orange-500/15',
     border: 'border-orange-500/40',
-    dailyCorn: 220,
-    dailyStars: 2,
-    dailyGold: 1,
+    dailyCorn: 280,
+    dailyStars: 0,
+    dailyGold: 2,
   },
   {
     tier: 'SILVER',
@@ -880,9 +902,9 @@ export const LEAGUE_TIERS: LeagueTierMeta[] = [
     color: 'text-slate-200',
     bg: 'bg-slate-400/15',
     border: 'border-slate-400/40',
-    dailyCorn: 380,
-    dailyStars: 3,
-    dailyGold: 2,
+    dailyCorn: 460,
+    dailyStars: 0,
+    dailyGold: 3,
   },
   {
     tier: 'GOLD',
@@ -891,9 +913,9 @@ export const LEAGUE_TIERS: LeagueTierMeta[] = [
     color: 'text-amber-300',
     bg: 'bg-amber-400/15',
     border: 'border-amber-400/50',
-    dailyCorn: 580,
-    dailyStars: 5,
-    dailyGold: 3,
+    dailyCorn: 720,
+    dailyStars: 0,
+    dailyGold: 4,
   },
   {
     tier: 'DIAMOND',
@@ -902,9 +924,9 @@ export const LEAGUE_TIERS: LeagueTierMeta[] = [
     color: 'text-sky-300',
     bg: 'bg-sky-400/15',
     border: 'border-sky-400/50',
-    dailyCorn: 820,
-    dailyStars: 7,
-    dailyGold: 4,
+    dailyCorn: 1050,
+    dailyStars: 0,
+    dailyGold: 6,
   },
   {
     tier: 'LEGENDARY',
@@ -913,9 +935,9 @@ export const LEAGUE_TIERS: LeagueTierMeta[] = [
     color: 'text-rose-300',
     bg: 'bg-rose-500/15',
     border: 'border-rose-400/60',
-    dailyCorn: 1100,
-    dailyStars: 10,
-    dailyGold: 6,
+    dailyCorn: 1450,
+    dailyStars: 0,
+    dailyGold: 8,
   },
 ];
 
@@ -940,17 +962,16 @@ export interface BattlePassLevelReward {
 
 export const BATTLE_PASS_LEVELS: BattlePassLevelReward[] = Array.from({ length: 15 }, (_, i) => {
   const lv = i + 1;
-  const freeStars = Math.max(2, Math.round(lv * 0.9));
   const freeEggs = Math.min(3, Math.ceil(lv / 4));
-  const freeCorn = lv * 110;
+  const freeCorn = lv * 135;
   const premGold = Math.max(2, Math.round(lv * 1.5));
   const premStars = Math.max(3, Math.round(lv * 2));
   return {
     level: lv,
     xpRequired: lv * 100,
-    freeLabel: lv % 3 === 0 ? `+${freeStars} ★` : lv % 2 === 0 ? `+${freeEggs} بيضة` : `+${freeCorn.toLocaleString()} طاقة`,
-    freeType: lv % 3 === 0 ? 'stars' : lv % 2 === 0 ? 'eggs' : 'corn',
-    freeAmount: lv % 3 === 0 ? freeStars : lv % 2 === 0 ? freeEggs : freeCorn,
+    freeLabel: lv % 2 === 0 ? `+${freeEggs} بيضة` : `+${freeCorn.toLocaleString()} طعام`,
+    freeType: lv % 2 === 0 ? 'eggs' : 'corn',
+    freeAmount: lv % 2 === 0 ? freeEggs : freeCorn,
     premiumLabel:
       lv === 15
         ? 'تنين أسطوري 👑'
@@ -1026,17 +1047,41 @@ export const EGG_ITEM_META: Record<EggItemType, EggItemMeta> = {
     id: 'egg_7',
     name: 'بيضة الكريستال [7]',
     tier: 7,
-    next: 'egg_love',
+    next: 'egg_8',
     desc: 'بيضة الكريستال السماوية المطلقة.',
     cornValue: 880,
+  },
+  egg_8: {
+    id: 'egg_8',
+    name: 'بيضة الأسطورة [8]',
+    tier: 8,
+    next: 'egg_9',
+    desc: 'بيضة أسطورية مشبعة بقوى التنانين العتيقة.',
+    cornValue: 1200,
+  },
+  egg_9: {
+    id: 'egg_9',
+    name: 'بيضة التنين العظيم [9]',
+    tier: 9,
+    next: 'egg_10',
+    desc: 'بيضة مهيبة تنبض بطاقة الكواكب.',
+    cornValue: 1800,
+  },
+  egg_10: {
+    id: 'egg_10',
+    name: 'بيضة السيادة المطلقة [10]',
+    tier: 10,
+    next: 'egg_love',
+    desc: 'بيضة السيادة الكونية العظمى.',
+    cornValue: 2500,
   },
   egg_love: {
     id: 'egg_love',
     name: 'بيضة القلب الأسطورية ❤️',
-    tier: 8,
+    tier: 11,
     next: null,
-    desc: 'أندر بيضة تنين! تمنح طاقة عالية ومكافآت نجوم عند التسليم.',
-    cornValue: 1400,
+    desc: 'أندر بيضة تنين تمنح طعام تنين وذهب عند التسليم.',
+    cornValue: 3500,
   },
   grapes: {
     id: 'grapes',
@@ -1097,6 +1142,44 @@ export const SKIN_CATALOG: Record<DuckSkinId, { name: string; title: string }> =
   ninja: { name: 'تنين الظل الليلي', title: 'Shadow Dragon' },
 };
 
+/**
+ * Rarity-based dragon 2D artworks (from the 5 uploaded dragon tier shapes).
+ */
+export const DRAGON_RARITY_ARTWORKS: Record<Rarity, string> = {
+  COMMON: '/assets/aistudio/_____3d0392f9.png',
+  UNCOMMON: '/assets/aistudio/_____e389eb71.png',
+  RARE: '/assets/aistudio/_______655c1976.png',
+  EPIC: '/assets/aistudio/_______09561691.png',
+  LEGENDARY: '/assets/aistudio/_______5261d0f3.png',
+};
+
+/**
+ * Fallback skin-to-artwork registry when rarity is not explicitly passed.
+ */
+export const DRAGON_SKIN_ARTWORKS: Record<DuckSkinId, string> = {
+  classic: DRAGON_RARITY_ARTWORKS.COMMON,
+  gamer: DRAGON_RARITY_ARTWORKS.COMMON,
+  pharaoh: DRAGON_RARITY_ARTWORKS.COMMON,
+  aqua: DRAGON_RARITY_ARTWORKS.UNCOMMON,
+  cool: DRAGON_RARITY_ARTWORKS.UNCOMMON,
+  bride: DRAGON_RARITY_ARTWORKS.UNCOMMON,
+  pumpkin: DRAGON_RARITY_ARTWORKS.RARE,
+  dj: DRAGON_RARITY_ARTWORKS.EPIC,
+  ninja: DRAGON_RARITY_ARTWORKS.EPIC,
+  coffee: DRAGON_RARITY_ARTWORKS.EPIC,
+  lilac: DRAGON_RARITY_ARTWORKS.LEGENDARY,
+  cupid: DRAGON_RARITY_ARTWORKS.LEGENDARY,
+  skeleton: DRAGON_RARITY_ARTWORKS.LEGENDARY,
+  royal: DRAGON_RARITY_ARTWORKS.LEGENDARY,
+};
+
+export function getDragonArtworkUrl(skin: DuckSkinId, rarity?: Rarity): string {
+  if (rarity && DRAGON_RARITY_ARTWORKS[rarity]) {
+    return DRAGON_RARITY_ARTWORKS[rarity];
+  }
+  return DRAGON_SKIN_ARTWORKS[skin] ?? DRAGON_RARITY_ARTWORKS.COMMON;
+}
+
 export function getDragonElement(skin: DuckSkinId): 'frost' | 'storm' | 'ember' {
   if (skin === 'aqua' || skin === 'bride' || skin === 'cool') return 'frost';
   if (skin === 'dj' || skin === 'skeleton' || skin === 'ninja' || skin === 'gamer') return 'storm';
@@ -1110,10 +1193,10 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     primaryItem: 'egg_2',
     primaryLabelAr: 'بيضتان [2]',
     secondaryItem: 'cornucopia',
-    secondaryLabelAr: 'حزمة موارد',
+    secondaryLabelAr: 'طعام ومعزز',
     reward: {
-      corn: 320,
-      stars: 3,
+      corn: 360,
+      stars: 0,
       eggs: ['egg_2', 'egg_2'],
       autoMergeBoosters: 1,
       battlePassXp: 15,
@@ -1125,12 +1208,13 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     primaryItem: 'egg_3',
     primaryLabelAr: 'بيضة نادرة [3]',
     secondaryItem: 'chalice',
-    secondaryLabelAr: 'طاقة ونجوم',
+    secondaryLabelAr: 'طعام ومفاتيح',
     reward: {
-      corn: 420,
-      stars: 5,
+      corn: 480,
+      stars: 0,
       eggs: ['egg_3'],
       keys: 1,
+      medals: 15,
       battlePassXp: 20,
     },
   },
@@ -1140,10 +1224,10 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     primaryItem: 'egg_3',
     primaryLabelAr: 'بيضتان [3]',
     secondaryItem: 'grapes',
-    secondaryLabelAr: 'قلوب المعبد',
+    secondaryLabelAr: 'قلوب وطعام',
     reward: {
-      corn: 520,
-      stars: 6,
+      corn: 600,
+      stars: 0,
       hearts: 60,
       eggs: ['egg_3', 'egg_3'],
       hammerBoosters: 1,
@@ -1158,9 +1242,9 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     secondaryItem: 'egg_2',
     secondaryLabelAr: 'أوسمة الحلبة',
     reward: {
-      corn: 650,
-      stars: 8,
-      medals: 25,
+      corn: 760,
+      stars: 0,
+      medals: 30,
       eggs: ['egg_4'],
       autoMergeBoosters: 1,
       battlePassXp: 30,
@@ -1174,9 +1258,9 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     secondaryItem: 'feast',
     secondaryLabelAr: 'ذهب التنانين',
     reward: {
-      corn: 800,
-      stars: 10,
-      duckGold: 3,
+      corn: 920,
+      stars: 0,
+      duckGold: 4,
       eggs: ['egg_5'],
       keys: 1,
       battlePassXp: 35,
@@ -1190,10 +1274,11 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     secondaryItem: 'chest',
     secondaryLabelAr: 'مفاتيح وشرف',
     reward: {
-      corn: 950,
-      stars: 12,
+      corn: 1100,
+      stars: 0,
       honorLetters: 2,
       keys: 1,
+      duckGold: 3,
       eggs: ['egg_5', 'egg_5'],
       battlePassXp: 40,
     },
@@ -1206,9 +1291,9 @@ export const DAILY_PASS_REWARDS: DailyPassRewardConfig[] = [
     secondaryItem: 'chest',
     secondaryLabelAr: 'كنز الأسبوع',
     reward: {
-      corn: 1200,
-      stars: 18,
-      duckGold: 6,
+      corn: 1450,
+      stars: 0,
+      duckGold: 7,
       keys: 2,
       eggs: ['egg_6'],
       autoMergeBoosters: 2,
@@ -1226,21 +1311,24 @@ export const GOD_PATRONS: Record<GodPatronId, { name: string; title: string; col
 };
 
 export const EGG_GRID_TOTAL_SLOTS = 30;
-export const EGG_GRID_INITIAL_UNLOCKED = 10;
+export const EGG_GRID_INITIAL_UNLOCKED = 9;
 
 export function createInitialGrid(): GridCell[] {
+  // Center 9 slots open out of 30 (5 columns x 6 rows)
+  const openIndices = new Set([6, 7, 8, 11, 12, 13, 16, 17, 18]);
   const presetItems: Partial<Record<number, EggItemType>> = {
-    0: 'egg_1',
-    1: 'egg_1',
-    2: 'egg_2',
-    3: 'egg_2',
-    4: 'egg_3',
-    5: 'grapes',
-    6: 'chalice',
+    6: 'egg_1',
+    7: 'egg_1',
+    8: 'egg_2',
+    11: 'egg_2',
+    12: 'egg_3',
+    13: 'grapes',
+    16: 'chalice',
+    18: 'chest', // Persistent Snack Chest cell
   };
 
   return Array.from({ length: EGG_GRID_TOTAL_SLOTS }, (_, index) => {
-    const locked = index >= EGG_GRID_INITIAL_UNLOCKED;
+    const locked = !openIndices.has(index);
     return {
       index,
       locked,
@@ -1273,101 +1361,7 @@ export function createRandomGodOrder(indexSeed = 0): GodOrder {
 }
 
 export function createInitialMarketListings(): MarketListing[] {
-  const now = Date.now();
-  return [
-    {
-      id: 'mkt_1',
-      duckName: 'تنين الصقيع الأزرق XL',
-      skin: 'cool',
-      rarity: 'UNCOMMON',
-      level: 3,
-      xl: true,
-      dmd: 0,
-      seller: 'CAMA_9L',
-      cornPrice: 2400,
-      starPrice: 35,
-      timeLeftSec: 22,
-      endsAt: now + 22000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-    {
-      id: 'mkt_2',
-      duckName: 'تنين العظام الأثري',
-      skin: 'skeleton',
-      rarity: 'UNCOMMON',
-      level: 4,
-      dmd: 0,
-      seller: 'NUBUBIICA',
-      cornPrice: 3100,
-      starPrice: 42,
-      timeLeftSec: 28,
-      endsAt: now + 28000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-    {
-      id: 'mkt_3',
-      duckName: 'تنين الظل الليلي',
-      skin: 'ninja',
-      rarity: 'RARE',
-      level: 4,
-      dmd: 0,
-      seller: 'MULTI_BOSS',
-      cornPrice: 5400,
-      starPrice: 68,
-      timeLeftSec: 36,
-      endsAt: now + 36000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-    {
-      id: 'mkt_4',
-      duckName: 'تنين البحار السماوي',
-      skin: 'aqua',
-      rarity: 'RARE',
-      level: 4,
-      dmd: 0,
-      seller: 'VIP_DRAGON',
-      cornPrice: 6200,
-      starPrice: 75,
-      timeLeftSec: 42,
-      endsAt: now + 42000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-    {
-      id: 'mkt_5',
-      duckName: 'تنين السديم الليلكي',
-      skin: 'lilac',
-      rarity: 'EPIC',
-      level: 5,
-      dmd: 0,
-      seller: 'SOLAFEIFEI',
-      cornPrice: 14500,
-      starPrice: 135,
-      timeLeftSec: 52,
-      endsAt: now + 52000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-    {
-      id: 'mkt_6',
-      duckName: 'التنين الإمبراطوري الملكي',
-      skin: 'royal',
-      rarity: 'LEGENDARY',
-      level: 5,
-      xl: true,
-      dmd: 0,
-      seller: 'ZLOYPHILIPP',
-      cornPrice: 32000,
-      starPrice: 280,
-      timeLeftSec: 60,
-      endsAt: now + 60000,
-      isUserBid: false,
-      soldStatus: 'ACTIVE',
-    },
-  ];
+  return [];
 }
 
 export function createInitialGameState(): GameState {
@@ -1502,7 +1496,7 @@ export function createInitialGameState(): GameState {
       godKey: 'plunder',
       name: 'بركة الغنائم',
       subtitle: 'نجوم وطاقة المعارك +35%',
-      bonusDesc: 'يزيد غنائم الحلبة وصناديق الكنوز بنسبة +35% دون المساس بسقف DMD.',
+      bonusDesc: 'يزيد غنائم الحلبة وصناديق الكنوز بنسبة +35% دون المساس بسقف AMF.',
       goldCost: 90,
       starCost: 90,
       owned: false,
@@ -1614,8 +1608,8 @@ export function createInitialGameState(): GameState {
         title: 'تسجيل الدخول اليومي لعالم التنانين',
         progress: 1,
         target: 1,
-        rewardStars: 2,
-        rewardEnergy: 80,
+        rewardStars: 0,
+        rewardEnergy: 140,
         claimed: false,
         actionLabel: 'استلام المكافأة',
       },
@@ -1624,8 +1618,8 @@ export function createInitialGameState(): GameState {
         title: 'أطعم التنانين 25 مرة',
         progress: 0,
         target: 25,
-        rewardStars: 3,
-        rewardEnergy: 130,
+        rewardStars: 0,
+        rewardEnergy: 210,
         claimed: false,
         actionTab: 'DUCKS',
         actionLabel: 'إطعام',
@@ -1635,8 +1629,8 @@ export function createInitialGameState(): GameState {
         title: 'ادمج 15 بيضة تنين',
         progress: 0,
         target: 15,
-        rewardStars: 3,
-        rewardEnergy: 160,
+        rewardStars: 0,
+        rewardEnergy: 260,
         claimed: false,
         actionTab: 'EGGS',
         actionLabel: 'إلى البيض',
@@ -1646,8 +1640,8 @@ export function createInitialGameState(): GameState {
         title: 'سلّم 5 قرابين لحراس المعبد',
         progress: 0,
         target: 5,
-        rewardStars: 4,
-        rewardEnergy: 190,
+        rewardStars: 0,
+        rewardEnergy: 310,
         claimed: false,
         actionTab: 'EGGS',
         actionLabel: 'إلى المعبد',
@@ -1657,8 +1651,8 @@ export function createInitialGameState(): GameState {
         title: 'اربح 3 مواجهات في الحلبة',
         progress: 0,
         target: 3,
-        rewardStars: 5,
-        rewardEnergy: 220,
+        rewardStars: 0,
+        rewardEnergy: 380,
         claimed: false,
         actionTab: 'ARENA',
         actionLabel: 'إلى الحلبة',
@@ -1677,16 +1671,17 @@ export function createInitialGameState(): GameState {
     marketListings: createInitialMarketListings(),
     pack: {
       joined: false,
-      packName: 'عش التنانين (Draco)',
-      motto: 'وحدة التنانين تفتح أبواب المجد وعرش DMD',
+      allianceId: '',
+      leaderPublicId: '',
+      leaderName: '',
+      realMembers: [],
+      packName: '',
+      motto: 'وحدة التنانين تفتح أبواب المجد وعرش AMF',
       emblemId: 'dragon_shield',
-      power: 100800,
-      members: 18,
-      treasuryCorn: 125000,
-      messages: [
-        { id: 'm1', sender: 'DRAGON_LEADER', text: 'مرحباً! طوروا تنانينكم للمستوى 5 وابدأوا تخصيص النجوم!', time: '14:20' },
-        { id: 'm2', sender: 'FERMER_DRACO', text: 'تذكروا تسريع تزاوج الإخوة والهجوم على تنين العاصفة!', time: '14:22' },
-      ],
+      power: 0,
+      members: 0,
+      treasuryCorn: 0,
+      messages: [],
       talents: {
         fury: 0,
         carapace: 0,
@@ -1694,15 +1689,15 @@ export function createInitialGameState(): GameState {
         prestige: 0,
       },
       level: 1,
-      xp: 12500,
-      allianceCoins: 180,
+      xp: 0,
+      allianceCoins: 0,
       contributionTotal: 0,
       activityPoints: 0,
       donationsToday: 0,
       helpsToday: 0,
-      bossLevel: 4,
-      bossHp: 12500,
-      bossMaxHp: 12500,
+      bossLevel: 1,
+      bossHp: 5000,
+      bossMaxHp: 5000,
       bossAttacksToday: 0,
       lastBreedHelpAt: 0,
       claimedActivityChests: [],
@@ -1730,14 +1725,14 @@ export function createInitialGameState(): GameState {
     },
     wallet: {
       connected: false,
-      address: 'UQDragon...DMD99',
+      address: 'UQDragon...AMF99',
       gram: 0,
     },
     tournament: {
       score: 0,
       claimedMilestones: [],
-      resetSeconds: 5180,
-      resetAt: now + 5180 * 1000,
+      resetSeconds: 86400,
+      resetAt: now + 86400 * 1000,
     },
     league: {
       points: 100,
@@ -1778,7 +1773,7 @@ export function createInitialGameState(): GameState {
     },
     muted: false,
     hapticsEnabled: true,
-    dragonMotionEnabled: true,
+    dragonMotionEnabled: false,
     lastSavedAt: Date.now(),
   };
 }
@@ -1791,7 +1786,53 @@ export function formatCompactNumber(num: number): string {
 
 export function formatTimer(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec));
-  const m = Math.floor(s / 60);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
   const rem = s % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+  }
   return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+}
+
+export interface ChestDropRoll {
+  rarity: 'common' | 'rare' | 'epic';
+  rarityLabelAr: string;
+  colorClass: string;
+  eggs: EggItemType[];
+  cornBonus: number;
+}
+
+export function rollSupplyChestDrops(seasonId?: string): ChestDropRoll {
+  const season = ACTIVE_SEASON;
+  const rates = season.dropRates ?? { common: 0.60, rare: 0.30, epic: 0.10 };
+  const roll = Math.random();
+  const commonLimit = rates.common;
+  const rareLimit = commonLimit + rates.rare;
+
+  if (roll < commonLimit) {
+    return {
+      rarity: 'common',
+      rarityLabelAr: 'شائع (Common)',
+      colorClass: 'text-slate-300 border-slate-600 bg-slate-800/50',
+      eggs: ['egg_1', 'grapes'],
+      cornBonus: 120,
+    };
+  } else if (roll < rareLimit) {
+    return {
+      rarity: 'rare',
+      rarityLabelAr: 'نادر (Rare)',
+      colorClass: 'text-sky-300 border-sky-500/50 bg-sky-950/40',
+      eggs: ['egg_3', 'chalice'],
+      cornBonus: 220,
+    };
+  } else {
+    return {
+      rarity: 'epic',
+      rarityLabelAr: 'ملحمي / موسمي (Epic)',
+      colorClass: 'text-amber-300 border-amber-400/60 bg-amber-950/40',
+      eggs: ['egg_5', 'egg_6'],
+      cornBonus: 450,
+    };
+  }
 }

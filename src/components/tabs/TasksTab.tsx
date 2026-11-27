@@ -8,7 +8,7 @@ import {
   Trophy,
   X,
 } from 'lucide-react';
-import { AchievementRegistryItem, DuckSkinId, GameState, MainTab } from '../../types/game';
+import { AchievementRegistryItem, DuckSkinId, GameState, MainTab, PlayerLeaderboardEntry } from '../../types/game';
 import {
   ACHIEVEMENTS_REGISTRY,
   HEART_MILESTONES_REGISTRY,
@@ -18,20 +18,25 @@ import {
   SOCIAL_TASKS_REGISTRY,
   WHEEL_REWARDS_REGISTRY,
 } from '../../data/gameData';
-import { DuckIllustration } from '../art/DuckArt';
+import { DuckIllustration, GodIllustration, ItemIcon, StarIcon } from '../art/DuckArt';
 import { soundFX } from '../../utils/sound';
 import {
   ECONOMY_LIMITS,
   getInstantSummonStarCost,
   getPlayerTier,
+  getTraderDealStarCost,
 } from '../../utils/economyEngine';
 import { openExternalLink, shareViaTelegram, triggerTelegramHaptic } from '../../utils/telegram';
 
 interface TasksTabProps {
   state: GameState;
+  leaderboardPlayers?: PlayerLeaderboardEntry[];
+  feedChallenges?: PlayerLeaderboardEntry[];
+  currentUid?: string | null;
   onSwitchTab: (tab: MainTab) => void;
-  onOpenDailyTasks: () => void;
-  onOpenTrader: () => void;
+  onBuyTraderDeal: () => void;
+  onClaimDailyTask: (taskId: string) => void;
+  onClaimDailyLevelReward: (rewardId: number, corn: number, eggs: number) => void;
   onFlipCoin: (packId: string) => DuckSkinId | null;
   onClaimHonorPack: (packId: string) => void;
   onClaimWatchBonus: () => void;
@@ -69,9 +74,13 @@ function getAchievementProgress(metric: AchievementRegistryItem['metric'], state
 
 export const TasksTab: React.FC<TasksTabProps> = ({
   state,
+  leaderboardPlayers = [],
+  feedChallenges = [],
+  currentUid = null,
   onSwitchTab,
-  onOpenDailyTasks,
-  onOpenTrader,
+  onBuyTraderDeal,
+  onClaimDailyTask,
+  onClaimDailyLevelReward,
   onFlipCoin,
   onClaimHonorPack,
   onClaimWatchBonus,
@@ -213,24 +222,128 @@ export const TasksTab: React.FC<TasksTabProps> = ({
       {/* === SUBTAB 1: QUESTS & ITEMS === */}
       {subTab === 'QUESTS' && (
         <div className="space-y-4 pb-6">
-          {/* Daily Tasks Banner */}
-          <div className="bg-gradient-to-l from-sky-500/15 via-[#181b24] to-[#181b24] border border-sky-500/30 rounded-2xl p-4 flex items-center justify-between gap-3">
-            <div>
-              <div className="font-display text-sm font-black text-white">المهام اليومية · التحدي اليومي</div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                أكمل المهام اليومية لكسب النجوم ★ والطاقة وفتح جوائز التحدي
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                soundFX.playTabSwitch();
-                onOpenDailyTasks();
-              }}
-              className="px-4 py-2 rounded-xl bg-sky-400 text-slate-950 font-black text-xs hover:brightness-105 cursor-pointer shrink-0"
-            >
-              فتح المهام
-            </button>
-          </div>
+          {/* Inline Daily Tasks & Milestone Rewards */}
+          {(() => {
+            const now = new Date();
+            const nextMid = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+            const remMs = Math.max(0, nextMid - now.getTime());
+            const remHrs = Math.floor(remMs / 3600000);
+            const remMins = Math.floor((remMs % 3600000) / 60000);
+            const completedTasksCount = state.dailyTasks.filter((t) => t.claimed).length;
+            return (
+              <div className="bg-gradient-to-b from-sky-500/10 via-[#181b24] to-[#181b24] border border-sky-500/30 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <h3 className="font-display text-sm font-black text-white">المهام اليومية · التحدي اليومي</h3>
+                  </div>
+                  <span className="font-mono-num text-[10px] px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-300 font-bold shrink-0">
+                    تتجدد خلال {remHrs}س {String(remMins).padStart(2, '0')}د
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {state.dailyTasks.map((t) => {
+                    const done = t.progress >= t.target;
+                    return (
+                      <div
+                        key={t.id}
+                        className="rounded-xl bg-slate-900/80 border border-slate-800 p-3 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-extrabold text-white truncate">{t.title}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className="h-full bg-rose-500"
+                                style={{ width: `${Math.min(100, (t.progress / t.target) * 100)}%` }}
+                              />
+                            </div>
+                            <span className="font-mono-num text-[10px] text-emerald-300 font-bold">
+                              {t.rewardStars > 0 ? `+${t.rewardStars} ★ · ` : ''}+{t.rewardEnergy} طعام 🍖
+                            </span>
+                          </div>
+                        </div>
+                        {t.claimed ? (
+                          <span className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-400 flex items-center justify-center shrink-0">
+                            <Check className="w-5 h-5" />
+                          </span>
+                        ) : done ? (
+                          <button
+                            onClick={() => {
+                              soundFX.playClaim();
+                              onClaimDailyTask(t.id);
+                            }}
+                            className="px-3 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-[11px] cursor-pointer shrink-0"
+                          >
+                            استلام
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (t.actionTab) onSwitchTab(t.actionTab);
+                            }}
+                            className="px-3 py-2 rounded-xl bg-slate-800 text-slate-200 font-bold text-[11px] hover:bg-slate-700 cursor-pointer shrink-0"
+                          >
+                            {t.actionLabel}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl bg-[#1a1f2e] border border-amber-400/30 p-3 text-center space-y-2">
+                  <div className="font-display text-xs font-black text-amber-300 font-mono-num">
+                    الرتبة {playerTier} · المهام المنجزة اليوم: {completedTasksCount}/5
+                  </div>
+                  <div className="text-[11px] font-mono-num text-slate-300">
+                    رصيد AMF: {state.dmdTotal.toFixed(3)} · أكمل مهمتين أو بلُغ 0.50 AMF لفتح المكافآت
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {[
+                      {
+                        id: 1,
+                        title: '2 بيضات تنين',
+                        corn: 0,
+                        eggs: 2,
+                        unlocked: completedTasksCount >= 2,
+                        lockLabel: 'أكمل مهمتين',
+                      },
+                      {
+                        id: 2,
+                        title: '280 طعام تنين 🍖',
+                        corn: 280,
+                        eggs: 0,
+                        unlocked: state.dmdTotal >= 0.5 || playerTier >= 3,
+                        lockLabel: '0.50 AMF أو رتبة 3',
+                      },
+                    ].map((rw) => {
+                      const claimed = state.claimedDailyLevelRewards.includes(rw.id);
+                      return (
+                        <button
+                          key={rw.id}
+                          disabled={claimed || !rw.unlocked}
+                          onClick={() => {
+                            soundFX.playChestOpen();
+                            onClaimDailyLevelReward(rw.id, rw.corn, rw.eggs);
+                          }}
+                          className={`min-h-[42px] py-2 px-2 rounded-xl font-black text-xs ${
+                            claimed
+                              ? 'bg-slate-800 text-emerald-400'
+                              : rw.unlocked
+                                ? 'bg-amber-400 text-slate-950 cursor-pointer hover:brightness-105'
+                                : 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {claimed ? 'تم الاستلام ✓' : rw.unlocked ? `استلام ${rw.title}` : rw.lockLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* My Items / عناصري */}
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
@@ -270,15 +383,12 @@ export const TasksTab: React.FC<TasksTabProps> = ({
 
           {/* HONOR REWARDS */}
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="font-display text-sm font-black text-white">مكافآت الشرف</h3>
               <span className="font-mono-num text-xs font-bold text-amber-300">
                 رسائل الشرف: {state.stats.honorLetters}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-3">
-              استبدل رسائل الشرف بحزم التنانين للحصول على طاقة إطعام ونجوم إضافية.
-            </p>
             <div className="grid grid-cols-3 gap-2">
               {HONOR_PACKS_REGISTRY.map((pack) => {
                 const claimed = state.claimedHonorPacks.includes(pack.id);
@@ -315,33 +425,69 @@ export const TasksTab: React.FC<TasksTabProps> = ({
             </div>
           </div>
 
-          {/* TRADER & OPTIONAL REWARDED ADS */}
+          {/* INLINE MOBILE TRADER & OPTIONAL REWARDED ADS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3">
-              <div>
-                <h4 className="font-display text-sm font-black text-white">التاجر المتنقل</h4>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  عروض التاجر الخاصة: خصم 25% على كنوز التنانين!
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  soundFX.playTabSwitch();
-                  onOpenTrader();
-                }}
-                className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shrink-0"
-              >
-                اقتناء
-              </button>
-            </div>
+            {(() => {
+              const traderStarCost = getTraderDealStarCost(playerTier);
+              const canAffordTrader = state.stars >= traderStarCost;
+              return (
+                <div className="bg-[#181b24] border border-amber-400/30 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <GodIllustration godId="trader" className="w-12 h-12 shrink-0" />
+                      <div>
+                        <h4 className="font-display text-sm font-black text-white">التاجر المتنقل</h4>
+                        <p className="text-[11px] text-slate-400">خصم 25% على كنوز التنانين · صفقاتك: {state.stats.traderDeals}</p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[10px] font-black shrink-0">
+                      رتبة {playerTier}
+                    </span>
+                  </div>
 
-            <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3">
+                  <div className="grid grid-cols-3 gap-1.5 text-center">
+                    <div className="rounded-xl bg-slate-900 border border-slate-800 p-2 flex flex-col items-center">
+                      <ItemIcon item="cornucopia" className="w-7 h-7" />
+                      <span className="text-[10px] font-bold text-slate-200 mt-1">قرن الوفرة [3]</span>
+                    </div>
+                    <div className="rounded-xl bg-slate-900 border border-slate-800 p-2 flex flex-col items-center">
+                      <ItemIcon item="chalice" className="w-7 h-7" />
+                      <span className="text-[10px] font-bold text-slate-200 mt-1">الكأس [2]</span>
+                    </div>
+                    <div className="rounded-xl bg-slate-900 border border-slate-800 p-2 flex flex-col items-center">
+                      <ItemIcon item="egg_3" className="w-7 h-7" />
+                      <span className="text-[10px] font-bold text-slate-200 mt-1">بيضتان [3 و 2]</span>
+                    </div>
+                  </div>
+
+                  <button
+                    disabled={!canAffordTrader}
+                    onClick={() => {
+                      soundFX.playChestOpen();
+                      onBuyTraderDeal();
+                    }}
+                    className={`w-full min-h-[42px] py-2 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 font-mono-num ${
+                      canAffordTrader
+                        ? 'bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 hover:brightness-105 cursor-pointer'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <StarIcon className="w-4 h-4" />
+                    <span>
+                      شراء الصفقة ({traderStarCost} ★ بدلاً من {Math.round(traderStarCost * 1.35)})
+                    </span>
+                  </button>
+                </div>
+              );
+            })()}
+
+            <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4 flex flex-col justify-between gap-3">
               <div>
                 <h4 className="text-sm font-black text-white">
                   شاهد إعلان اختياري ({state.treasury.adsWatchedToday}/{state.treasury.maxAdsPerDay})
                 </h4>
-                <p className="text-xs text-emerald-400 font-mono-num font-bold mt-0.5">
-                  +{ECONOMY_LIMITS.AD_ENERGY_REWARD} طاقة فورية · دعم 50% لصندوق DMD
+                <p className="text-xs text-emerald-400 font-mono-num font-bold mt-1">
+                  +{ECONOMY_LIMITS.AD_ENERGY_REWARD} طعام فوري 🍖
                 </p>
               </div>
               <button
@@ -350,20 +496,20 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                   soundFX.playClaim();
                   onClaimWatchBonus();
                 }}
-                className={`px-4 py-2 rounded-xl font-black text-xs shrink-0 ${
+                className={`w-full min-h-[42px] px-4 py-2 rounded-xl font-black text-xs ${
                   state.treasury.adsWatchedToday >= state.treasury.maxAdsPerDay
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                     : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer'
                 }`}
               >
-                {state.treasury.adsWatchedToday >= state.treasury.maxAdsPerDay ? 'اكتمل اليوم' : 'مشاهدة'}
+                {state.treasury.adsWatchedToday >= state.treasury.maxAdsPerDay ? 'اكتمل اليوم' : 'مشاهدة الآن'}
               </button>
             </div>
           </div>
 
           {/* COLLECT HEARTS (02:54-02:56) */}
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5">
                 <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
                 <h3 className="text-sm font-black text-white">اجمع القلوب</h3>
@@ -372,9 +518,6 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                 لديك {state.stats.hearts.toLocaleString()} ❤️
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-3">
-              احصل على القلوب عند دمج بيض الحب وإطعام التنانين لفتح مكافآت وبيضة الياقوت [6]!
-            </p>
             <div className="grid grid-cols-3 gap-2">
               {HEART_MILESTONES_REGISTRY.map((m) => {
                 const reached = state.stats.hearts >= m.targetHearts;
@@ -500,7 +643,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
                   جرّب: <span className="font-mono-num text-amber-300">{PROMO_CODES_REGISTRY[0]?.code ?? 'DRAGON'}</span> أو{' '}
-                  <span className="font-mono-num text-amber-300">{PROMO_CODES_REGISTRY[1]?.code ?? 'DMD2025'}</span>
+                  <span className="font-mono-num text-amber-300">{PROMO_CODES_REGISTRY[1]?.code ?? 'AMF2025'}</span>
                 </p>
               </div>
               <button
@@ -557,49 +700,59 @@ export const TasksTab: React.FC<TasksTabProps> = ({
       {subTab === 'CHALLENGES' && (
         <div className="space-y-4 pb-6">
           <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-black text-white">تحديات إطعام التنانين</h3>
               <span className="font-mono-num text-xs text-amber-300 font-bold">
                 ميدالياتك: {state.stats.medals} 🏅
               </span>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              تحدَّ المروّضين في إطعام التنانين ودوّر <span className="text-amber-300 font-bold">عجلة التنانين</span> لربح طاقة وذهب التنانين وبيضة الزمرد [4]!
-            </p>
 
-            {/* Leaderboard */}
+            {/* Real Players Feed Challenges Leaderboard */}
             <div className="space-y-2 mb-4">
-              {[
-                { rank: 1, name: 'solafeifei', reward: '2000 🏅', score: '6.7M' },
-                { rank: 2, name: 'NububiicA', reward: '1500 🏅', score: '2.5M' },
-                { rank: 3, name: 'ZloyPhilipp', reward: '1250 🏅', score: '2.2M' },
-                { rank: 4, name: 'neoltd', reward: '1000 🏅', score: '2.1M' },
-                {
-                  rank: Math.max(5, 99 - Math.floor(state.stats.totalFeeds / 2)),
-                  name: state.username,
-                  reward: '10 🏅',
-                  score: `${state.stats.totalFeeds * 25}`,
-                  isYou: true,
-                },
-              ].map((row) => (
-                <div
-                  key={row.name}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs ${
-                    row.isYou
-                      ? 'bg-amber-400/15 border-amber-400/60 text-white font-bold'
-                      : 'bg-slate-900/70 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono-num font-black text-amber-400 w-6">#{row.rank}</span>
-                    <span>{row.name}</span>
+              {(() => {
+                const sourceList = feedChallenges.length > 0 ? feedChallenges : leaderboardPlayers;
+                const rows = sourceList.map((p) => {
+                  const feeds = p.totalFeeds ?? 0;
+                  return {
+                    id: p.uid,
+                    name: p.username,
+                    feeds,
+                    reward: `${Math.max(10, Math.min(2000, Math.round(feeds * 2)))} 🏅`,
+                    score: feeds.toLocaleString(),
+                    isYou: Boolean(currentUid && p.uid === currentUid),
+                  };
+                });
+                if (!rows.some((r) => r.isYou)) {
+                  rows.push({
+                    id: currentUid || 'self',
+                    name: state.username,
+                    feeds: state.stats.totalFeeds,
+                    reward: `${Math.max(10, Math.min(2000, Math.round(state.stats.totalFeeds * 2)))} 🏅`,
+                    score: state.stats.totalFeeds.toLocaleString(),
+                    isYou: true,
+                  });
+                }
+                const sorted = rows.sort((a, b) => b.feeds - a.feeds);
+                return sorted.map((row, idx) => (
+                  <div
+                    key={row.id}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs ${
+                      row.isYou
+                        ? 'bg-amber-400/15 border-amber-400/60 text-white font-bold'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="font-mono-num font-black text-amber-400 w-6 shrink-0">#{idx + 1}</span>
+                      <span className="truncate">{row.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4 font-mono-num shrink-0">
+                      <span className="text-amber-300">{row.reward}</span>
+                      <span className="text-emerald-400">{row.score} إطعام</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 font-mono-num">
-                    <span className="text-amber-300">{row.reward}</span>
-                    <span className="text-emerald-400">{row.score}</span>
-                  </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
 
             <button
@@ -627,9 +780,6 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                 ({invitesUsedToday}/{ECONOMY_LIMITS.MAX_DAILY_INVITE_CLAIMS} اليوم)
               </span>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              احصل على مكافآت فورية عن كل صديق تدعوه (حتى {ECONOMY_LIMITS.MAX_DAILY_INVITE_CLAIMS} دعوات يومياً)، بالإضافة إلى <span className="text-emerald-400 font-bold">10%</span> من طاقة البيض!
-            </p>
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 disabled={invitesCapReached}
@@ -643,7 +793,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                     : 'bg-slate-900 border-slate-700 hover:border-emerald-400 cursor-pointer'
                 }`}
               >
-                <div className="text-emerald-400 font-mono-num font-black text-base">+120 ⚡</div>
+                <div className="text-emerald-400 font-mono-num font-black text-base">+120 🍖 · +5 🏅</div>
                 <div className="text-[11px] text-slate-300 mt-0.5">
                   {invitesCapReached ? 'اكتمل الحد اليومي' : 'دعوة صديق عادي'}
                 </div>
@@ -660,7 +810,7 @@ export const TasksTab: React.FC<TasksTabProps> = ({
                     : 'bg-slate-900 border-slate-700 hover:border-amber-400 cursor-pointer'
                 }`}
               >
-                <div className="text-amber-400 font-mono-num font-black text-base">+320 ⚡ · +3 ★</div>
+                <div className="text-amber-400 font-mono-num font-black text-sm">+320 🍖 · +2 💎 · +15 🏅</div>
                 <div className="text-[11px] text-slate-300 mt-0.5">
                   {invitesCapReached ? 'اكتمل الحد اليومي' : 'صديق باشتراك مميز'}
                 </div>
@@ -670,8 +820,9 @@ export const TasksTab: React.FC<TasksTabProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 onClick={() => {
-                  const refUrl = `https://t.me/dragon_dmd_bot?start=${encodeURIComponent(state.username)}`;
-                  shareViaTelegram('انضم معي في DRAGON × DMD وابدأ تربية التنانين الأسطورية!', refUrl);
+                  const refParam = encodeURIComponent(currentUid || state.username);
+                  const refUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.origin + '?startapp=ref_' + refParam)}&text=${encodeURIComponent('انضم معي في DRAGON × AMF وابدأ تربية التنانين الأسطورية!')}`;
+                  shareViaTelegram('انضم معي في DRAGON × AMF وابدأ تربية التنانين الأسطورية!', refUrl);
                   soundFX.playTabSwitch();
                   triggerTelegramHaptic('light');
                 }}
@@ -683,7 +834,10 @@ export const TasksTab: React.FC<TasksTabProps> = ({
 
               <button
                 onClick={() => {
-                  navigator.clipboard?.writeText(`https://t.me/dragon_dmd_bot?start=${encodeURIComponent(state.username)}`).catch(() => {});
+                  const refParam = encodeURIComponent(currentUid || state.username);
+                  navigator.clipboard
+                    ?.writeText(`${window.location.origin}/?startapp=ref_${refParam}`)
+                    .catch(() => {});
                   soundFX.playTabSwitch();
                   triggerTelegramHaptic('light');
                   setCopiedInvite(true);
@@ -754,7 +908,6 @@ export const TasksTab: React.FC<TasksTabProps> = ({
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="font-display text-lg font-black text-white">عملة المظهر</h3>
-                <p className="text-xs text-slate-400">اقلب العملة لمنح تنينك مظهراً أسطورياً جديداً!</p>
               </div>
               <button
                 onClick={() => setActiveFlipPackId(null)}

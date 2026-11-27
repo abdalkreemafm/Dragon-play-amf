@@ -104,6 +104,9 @@ export type EggItemType =
   | 'egg_5'
   | 'egg_6'
   | 'egg_7'
+  | 'egg_8'
+  | 'egg_9'
+  | 'egg_10'
   | 'egg_love'
   | 'grapes'
   | 'chalice'
@@ -183,6 +186,23 @@ export interface MarketListing {
   soldAt?: number;
 }
 
+export interface DragonAuctionValuationClient {
+  upgradeInvestmentEnergy: number;
+  breakdown: {
+    levelFeedsEnergy: number;
+    customStarsEquivalent: number;
+    skillsEquivalent: number;
+    trainingEnergy: number;
+    sizeAndGearBonus: number;
+  };
+  minStartCorn: number;
+  maxStartCorn: number;
+  suggestedStartCorn: number;
+  minBuyNowStars: number;
+  maxBuyNowStars: number;
+  suggestedBuyNowStars: number;
+}
+
 export interface DragonAuctionRecord {
   id: string;
   sellerUid: string;
@@ -202,6 +222,7 @@ export interface DragonAuctionRecord {
     powerRating?: number;
   };
   rarity: Rarity;
+  valuation?: DragonAuctionValuationClient;
   startCornPrice: number;
   currentCornPrice: number;
   buyNowStars: number;
@@ -214,6 +235,10 @@ export interface DragonAuctionRecord {
   sellerClaimed: boolean;
   buyerClaimed: boolean;
   endsAtMs: number;
+  createdAtMs?: number;
+  cycleEndsAtMs?: number;
+  auctionPhase?: 'DESCENDING' | 'BIDDING' | 'SOLD' | 'CANCELLED';
+  lastPriceDirection?: 'DOWN' | 'UP' | 'NONE';
 }
 
 export interface ActiveEscrowBid {
@@ -229,11 +254,66 @@ export interface PlayerLeaderboardEntry {
   powerRating: number;
   leaguePoints: number;
   dmdTotal: number;
+  tournamentScore?: number;
+  totalFeeds?: number;
+  allianceName?: string;
   dragonCount: number;
   activeDragonName: string;
   activeDragonSkin: string;
   activeDragonRarity: Rarity;
   activeDragonLevel: number;
+}
+
+export interface RealAllianceMemberSnapshot {
+  publicId: string;
+  displayName: string;
+  avatarUrl?: string;
+  role: AllianceMemberRole;
+  rank: string;
+  powerRating: number;
+  donatedEnergy: number;
+  donatedTech: number;
+  rallyScore: number;
+  dailyActivity: number;
+  online: boolean;
+  lastSeenAr: string;
+}
+
+export type AllianceVisibility = 'PUBLIC' | 'SECRET';
+
+export interface RealAllianceDirectoryItem {
+  id: string;
+  packName: string;
+  motto: string;
+  emblemId: AllianceEmblemId;
+  visibility?: AllianceVisibility;
+  leaderName: string;
+  level: number;
+  memberCount: number;
+  onlineCount: number;
+  maxMembers: number;
+  power: number;
+  treasuryCorn?: number;
+  bossLevel?: number;
+  joinConditions: AllianceJoinConditions;
+}
+
+export interface CompetitionParticipantEntry {
+  publicId: string;
+  name: string;
+  score: number;
+  powerRating: number;
+}
+
+export interface ServerCompetitionSnapshot {
+  cycleId: string;
+  cycleNumber: number;
+  startedAt: number;
+  endsAt: number;
+  activeEventIndex: number;
+  eventEndsAt: number;
+  participants: CompetitionParticipantEntry[];
+  feedChallenges: PlayerLeaderboardEntry[];
 }
 
 export interface PackMessage {
@@ -467,6 +547,12 @@ export interface AllianceRewardPool {
 
 export interface PackState {
   joined: boolean;
+  allianceId?: string;
+  leaderPublicId?: string;
+  leaderName?: string;
+  visibility?: AllianceVisibility;
+  inviteCode?: string;
+  realMembers?: RealAllianceMemberSnapshot[];
   packName: string;
   motto?: string;
   emblemId?: AllianceEmblemId;
@@ -526,6 +612,8 @@ export interface TournamentState {
   claimedMilestones: number[];
   resetSeconds: number;
   resetAt?: number;
+  cycleId?: string;
+  cycleNumber?: number;
 }
 
 export type LeagueTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'DIAMOND' | 'LEGENDARY';
@@ -563,6 +651,10 @@ export interface GameStats {
   dailyPassClaimedToday: boolean;
   autoMergeBoosters: number;
   hammerBoosters: number;
+  snackChestReadyAt?: number;
+  snackChestDiscountOpensLeft?: number;
+  extraChestReadyAt?: number;
+  extraChestOpensCount?: number;
 }
 
 export interface RewardBundle {
@@ -607,6 +699,11 @@ export interface SeasonConfig {
   premiumPriceUsd: number;
   premiumFallbackStarsCost: number;
   bonusDescriptionAr: string;
+  dropRates?: {
+    common: number;
+    rare: number;
+    epic: number;
+  };
 }
 
 export interface StarEvolutionTierMeta {
@@ -713,6 +810,7 @@ export interface GameState {
   unlockedSlots: number; // 3..8 open dragon slots
   treasury: TreasuryState;
   weekendEventIndex: number;
+  weekendEventEndsAt?: number;
   grid: GridCell[];
   eggQueue: EggItemType[];
   godOrders: GodOrder[];

@@ -113,6 +113,24 @@ export function getTelegramUser(): {
   };
 }
 
+const PREVIEW_TG_ID_KEY = 'dragon_preview_tg_id';
+
+export function getOrCreatePreviewTelegramId(): number {
+  if (typeof window === 'undefined') return 7771899;
+  try {
+    const raw = window.localStorage.getItem(PREVIEW_TG_ID_KEY);
+    const parsed = raw ? Number(raw) : NaN;
+    if (Number.isSafeInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+    const generated = 81000000 + Math.floor(Math.random() * 18999999);
+    window.localStorage.setItem(PREVIEW_TG_ID_KEY, String(generated));
+    return generated;
+  } catch {
+    return 7771899;
+  }
+}
+
 export async function verifyTelegramSession(): Promise<{
   verified: boolean;
   reason?: string;
@@ -121,15 +139,12 @@ export async function verifyTelegramSession(): Promise<{
   publicId?: string;
 }> {
   const initData = getTelegramRawInitData();
-  if (!initData) {
-    return { verified: false, reason: 'NOT_IN_TELEGRAM' };
-  }
-  const claimedId = getTgApp()?.initDataUnsafe?.user?.id;
+  const claimedId = getTgApp()?.initDataUnsafe?.user?.id || getOrCreatePreviewTelegramId();
   try {
     const res = await fetch('/api/telegram/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, claimedTelegramId: claimedId }),
+      body: JSON.stringify({ initData: initData || 'tamer_session_init', claimedTelegramId: claimedId }),
     });
     if (!res.ok) {
       return { verified: false, reason: `HTTP_${res.status}` };
@@ -197,7 +212,7 @@ export function shareViaTelegram(text: string, url: string): boolean {
     }
   }
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-    navigator.share({ title: 'DRAGON × DMD', text, url }).catch(() => {});
+    navigator.share({ title: 'DRAGON × AMF', text, url }).catch(() => {});
     return true;
   }
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {

@@ -32,27 +32,30 @@ import {
 } from '../types/game';
 
 const EGG_SELL_REWARD_MAP: Record<EggItemType, { corn: number; stars: number; gold: number }> = {
-  egg_1: { corn: 5, stars: 0, gold: 0 },
-  egg_2: { corn: 12, stars: 0, gold: 0 },
-  egg_3: { corn: 24, stars: 0, gold: 0 },
-  egg_4: { corn: 48, stars: 1, gold: 0 },
-  egg_5: { corn: 95, stars: 1, gold: 0 },
-  egg_6: { corn: 180, stars: 2, gold: 0 },
-  egg_7: { corn: 340, stars: 3, gold: 1 },
-  egg_love: { corn: 560, stars: 5, gold: 2 },
-  grapes: { corn: 12, stars: 0, gold: 0 },
-  chalice: { corn: 32, stars: 0, gold: 0 },
-  cornucopia: { corn: 85, stars: 1, gold: 0 },
-  feast: { corn: 220, stars: 2, gold: 1 },
+  egg_1: { corn: 6, stars: 0, gold: 0 },
+  egg_2: { corn: 14, stars: 0, gold: 0 },
+  egg_3: { corn: 28, stars: 0, gold: 0 },
+  egg_4: { corn: 65, stars: 0, gold: 0 },
+  egg_5: { corn: 130, stars: 0, gold: 1 },
+  egg_6: { corn: 250, stars: 0, gold: 1 },
+  egg_7: { corn: 460, stars: 0, gold: 2 },
+  egg_8: { corn: 800, stars: 0, gold: 3 },
+  egg_9: { corn: 1400, stars: 1, gold: 5 },
+  egg_10: { corn: 2200, stars: 2, gold: 8 },
+  egg_love: { corn: 3500, stars: 3, gold: 12 },
+  grapes: { corn: 14, stars: 0, gold: 0 },
+  chalice: { corn: 36, stars: 0, gold: 0 },
+  cornucopia: { corn: 115, stars: 0, gold: 0 },
+  feast: { corn: 300, stars: 0, gold: 2 },
   chest: { corn: 0, stars: 0, gold: 0 },
 };
 
 export function getEggSellReward(item: EggItemType): { corn: number; stars: number; gold: number } {
-  return EGG_SELL_REWARD_MAP[item] ?? { corn: 5, stars: 0, gold: 0 };
+  return EGG_SELL_REWARD_MAP[item] ?? { corn: 6, stars: 0, gold: 0 };
 }
 
 export const ECONOMY_LIMITS = {
-  MAX_DAILY_BARTER_STARS: 4,
+  MAX_DAILY_BARTER_STARS: 0,
   MAX_DAILY_BARTER_GOLD: 3,
   MAX_DAILY_ADS: 4,
   MAX_DAILY_ARENA_FULL_WINS: 5,
@@ -60,7 +63,7 @@ export const ECONOMY_LIMITS = {
   TIMED_BONUS_COOLDOWN_SEC: 180,
   TIMED_BONUS_ENERGY: 75,
   AD_ENERGY_REWARD: 110,
-  AD_STARS_REWARD: 3,
+  AD_STARS_REWARD: 0,
   AD_EGGS_REWARD: 1,
   BLITZ_ACTIVATION_COST: 90,
   RACE_ENTRY_COST: 55,
@@ -86,7 +89,7 @@ export const STAR_EVOLUTION_TIERS: StarEvolutionTierMeta[] = [
   {
     minStar: 1,
     nameAr: 'يافع ★1',
-    subtitleAr: 'بداية فتح قيمة DMD في المحفظة',
+    subtitleAr: 'بداية فتح قيمة AMF في المحفظة',
     auraColorHex: '#38bdf8',
     badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-400/50',
   },
@@ -121,7 +124,7 @@ export const STAR_EVOLUTION_TIERS: StarEvolutionTierMeta[] = [
   {
     minStar: 10,
     nameAr: 'مخصّص ★10',
-    subtitleAr: 'مختوم في الخزانة وجاهز لاستبدال DMD',
+    subtitleAr: 'مختوم في الخزانة وجاهز لاستبدال AMF',
     auraColorHex: '#fde047',
     badgeClass: 'bg-amber-400/30 text-yellow-200 border-yellow-300/80',
   },
@@ -151,7 +154,7 @@ export const RARITY_FEED_MULT: Record<Rarity, number> = {
 
 export const RARITY_INDEX_ORDER: Rarity[] = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'];
 
-// Exact 5-tier DMD pricing at Customization ★10 + XL / XXL ladder multipliers:
+// Exact 5-tier AMF pricing at Customization ★10 + XL / XXL ladder multipliers:
 // عادي 15 | نادر 45 | ملحمي 120 | أسطوري 350 | خرافي 1000 | XL+خرافي 2500 | XXL+خرافي 6500
 export const BASE_DMD_PRICE_BY_RARITY: Record<Rarity, number> = {
   COMMON: 15,
@@ -298,15 +301,28 @@ export function getXlEggUpgradeCost(level: number, size: DragonSize): number {
 }
 
 /**
- * Chronological Acquisition Slot Assignment:
- * Oldest acquired dragons (lowest unlockedAt) occupy Slots 0 .. unlockedSlots - 1.
+ * Chronological Acquisition Slot Assignment (Infinite Slots):
+ * Every acquired dragon occupies a slot (0, 1, 2, ...). Slots >= unlockedSlots remain locked until unlocked.
  */
-export function normalizeDragonSlots(ducks: Duck[], unlockedSlots: number): Duck[] {
+export function normalizeDragonSlots(ducks: Duck[], _unlockedSlots: number): Duck[] {
   const sorted = [...ducks].sort((a, b) => (a.unlockedAt || 0) - (b.unlockedAt || 0));
   return sorted.map((d, idx) => ({
     ...d,
-    slotIndex: idx < unlockedSlots ? idx : null,
+    slotIndex: idx,
   }));
+}
+
+export function isDragonSlotLocked(
+  dragon: Pick<Duck, 'slotIndex'> | undefined | null,
+  unlockedSlots: number
+): boolean {
+  if (!dragon) return true;
+  return dragon.slotIndex === null || dragon.slotIndex >= unlockedSlots;
+}
+
+export function getFirstUnlockedDragonIndex(ducks: Duck[], unlockedSlots: number): number {
+  const idx = ducks.findIndex((d, i) => (d.slotIndex ?? i) < unlockedSlots);
+  return idx >= 0 ? idx : 0;
 }
 
 /**
@@ -343,15 +359,11 @@ export function grantRewardBundle(
 ): { nextState: GameState; grantedEnergy: number } {
   const playerTier = getPlayerTier(state);
   const softCap = getEnergySoftCap(playerTier);
-  const hardCap = getEnergyHardCap(playerTier);
   const rawCorn = Math.max(0, Math.round(bundle.corn ?? 0));
-  const softAdjusted =
-    rawCorn > 0
-      ? options?.applySoftCap
-        ? applySoftCapDamping(rawCorn, state.corn, softCap, state.treasury.energyEarnedToday ?? 0).finalGain
-        : rawCorn
-      : 0;
-  const grantedEnergy = Math.max(0, Math.min(softAdjusted, Math.max(0, hardCap - state.corn)));
+  const useSoftCap = options?.applySoftCap !== false && rawCorn > 0;
+  const grantedEnergy = useSoftCap
+    ? applySoftCapDamping(rawCorn, state.corn, softCap, state.treasury.energyEarnedToday ?? 0).finalGain
+    : rawCorn;
   const starsGain = Math.max(0, Math.round(bundle.stars ?? 0));
   const goldGain = Math.max(0, Math.round(bundle.duckGold ?? 0));
   const xpGain = Math.max(0, Math.round(bundle.battlePassXp ?? 0));
@@ -468,16 +480,16 @@ export function getSquadTalentCost(
       };
     case 'incubation':
       return {
-        corn: Math.round(240 * Math.pow(1.21, r) * tScale),
-        stars: Math.round(2 + r * 1.2),
+        corn: Math.round(280 * Math.pow(1.21, r) * tScale),
+        stars: 0,
         gold: 0,
-        medals: 0,
+        medals: Math.round(10 * Math.pow(1.12, r)),
       };
     case 'prestige':
       return {
-        corn: 0,
-        stars: Math.round(3 + r * 1.4),
-        gold: Math.round(2 * Math.pow(1.16, r)),
+        corn: Math.round(220 * Math.pow(1.18, r) * tScale),
+        stars: 0,
+        gold: Math.round(3 * Math.pow(1.16, r)),
         medals: 0,
       };
   }
@@ -518,22 +530,22 @@ export const RELIC_FORGE_CATALOG: RelicForgeOffer[] = [
   {
     id: 'egg_surge',
     nameAr: 'إكسير التفقيس المتوهج',
-    descAr: '+20% طاقة إضافية من دمج البيض والمعبد',
+    descAr: '+20% طعام تنين إضافي من دمج البيض والمعبد',
     durationLabel: '24 ساعة',
-    cornCost: 0,
+    cornCost: 200,
     goldCost: 3,
-    medalsCost: 18,
-    starsCost: 2,
+    medalsCost: 22,
+    starsCost: 0,
   },
   {
     id: 'buy_hammer',
     nameAr: 'صقل مطرقة الترقية (+1)',
     descAr: 'شحنة مطرقة فورية لترقية أي بيضة',
     durationLabel: 'فوري',
-    cornCost: 220,
-    goldCost: 2,
-    medalsCost: 12,
-    starsCost: 2,
+    cornCost: 260,
+    goldCost: 3,
+    medalsCost: 16,
+    starsCost: 0,
   },
   {
     id: 'buy_automerge',
@@ -556,11 +568,11 @@ export function getArenaEntryCost(rivalIndex: number, prestigeRank = 0, isRace =
 }
 
 /**
- * Active Treasury Soft-Cap:
- * EnergySoftCap(T) = 4,500 * (1 + 0.25 * (T - 1))
+ * Active Dragon Food Soft-Cap:
+ * SoftCap(T) = 4,500 * (1 + 0.30 * (T - 1))
  */
 export function getEnergySoftCap(playerTier: number): number {
-  return Math.round(4500 * (1 + 0.25 * Math.max(0, playerTier - 1)));
+  return Math.round(4500 * (1 + 0.30 * Math.max(0, playerTier - 1)));
 }
 
 export function getEnergyHardCap(playerTier: number): number {
@@ -574,24 +586,137 @@ export function applySoftCapDamping(
   energyEarnedToday = 0
 ): { finalGain: number; damped: boolean; multiplier: number } {
   if (rawEnergyGain <= 0) return { finalGain: 0, damped: false, multiplier: 1 };
-  let mult = 1;
-  if (currentCorn >= softCap * 1.5) {
-    mult *= 0.3;
-  } else if (currentCorn >= softCap) {
-    mult *= 0.6;
+  const safeCap = Math.max(1, softCap);
+  const stockRatio = Math.max(0, currentCorn) / safeCap;
+  const stockMult =
+    stockRatio <= 1 ? 1 : stockRatio <= 1.6 ? 0.78 : stockRatio <= 2.5 ? 0.55 : 0.35;
+  const dailyMult = energyEarnedToday > safeCap * 2.5 ? 0.75 : 1;
+  const multiplier = Math.max(0.25, Number((stockMult * dailyMult).toFixed(2)));
+  const finalGain = Math.max(1, Math.round(rawEnergyGain * multiplier));
+  return {
+    finalGain,
+    damped: finalGain < Math.round(rawEnergyGain),
+    multiplier,
+  };
+}
+
+export function calculateDragonUpgradeInvestmentAndPrice(dragon: Pick<
+  Duck,
+  'rarity' | 'level' | 'customLevel' | 'skillLevel' | 'trainingLevel' | 'sizeTier' | 'xl' | 'gear'
+>): {
+  upgradeInvestmentEnergy: number;
+  breakdown: {
+    levelFeedsEnergy: number;
+    customStarsEquivalent: number;
+    skillsEquivalent: number;
+    trainingEnergy: number;
+    sizeAndGearBonus: number;
+  };
+  minStart: number;
+  maxStart: number;
+  suggestedStart: number;
+  minStars: number;
+  maxStars: number;
+  suggestedStars: number;
+} {
+  const rarityFeedBase: Record<Rarity, number> = {
+    COMMON: 12,
+    UNCOMMON: 22,
+    RARE: 42,
+    EPIC: 85,
+    LEGENDARY: 170,
+  };
+  const rarityListFloor: Record<Rarity, number> = {
+    COMMON: 320,
+    UNCOMMON: 850,
+    RARE: 2100,
+    EPIC: 5200,
+    LEGENDARY: 12500,
+  };
+  const rarityStarFloor: Record<Rarity, number> = {
+    COMMON: 5,
+    UNCOMMON: 10,
+    RARE: 20,
+    EPIC: 40,
+    LEGENDARY: 80,
+  };
+
+  const rarity = dragon.rarity in rarityFeedBase ? dragon.rarity : 'COMMON';
+  const level = Math.max(1, Math.min(5, Math.round(dragon.level || 1)));
+  const customLevel = Math.max(0, Math.min(10, Math.round(dragon.customLevel || 0)));
+  const skillLevel = Math.max(1, Math.min(10, Math.round(dragon.skillLevel || 1)));
+  const trainingLevel = Math.max(0, Math.min(1000, Math.round(dragon.trainingLevel || 0)));
+  const sizeTier = resolveDragonSize(dragon);
+  const sizeMult = sizeTier === 'XXL' ? 1.85 : sizeTier === 'XL' ? 1.35 : 1;
+
+  const baseFeed = rarityFeedBase[rarity];
+  let levelFeedsEnergy = 0;
+  for (let lv = 1; lv < level; lv += 1) {
+    const reqClicks = Math.min(20, 4 + lv * 2);
+    const clickCost = Math.round(baseFeed * Math.pow(1.42, lv - 1));
+    levelFeedsEnergy += reqClicks * clickCost;
   }
-  // Daily inflation damper: slows passive farming beyond 3.5x daily soft cap
-  if (energyEarnedToday >= softCap * 3.5) {
-    mult *= 0.5;
+  levelFeedsEnergy += Math.round(baseFeed * 4);
+
+  let totalCustomStars = 0;
+  for (let c = 0; c < customLevel; c += 1) {
+    totalCustomStars += 10 * (c + 1);
   }
-  if (mult < 1) {
-    return {
-      finalGain: Math.max(1, Math.round(rawEnergyGain * mult)),
-      damped: true,
-      multiplier: Number(mult.toFixed(2)),
-    };
+  const customStarsEquivalent = Math.round(totalCustomStars * 95);
+
+  let skillStars = 0;
+  for (let s = 1; s < skillLevel; s += 1) {
+    skillStars += 4 + s * 3;
   }
-  return { finalGain: Math.round(rawEnergyGain), damped: false, multiplier: 1 };
+  const skillsEquivalent = Math.round(skillStars * 95);
+
+  let trainingEnergy = 0;
+  const cappedTrain = Math.min(trainingLevel, 80);
+  for (let t = 0; t < cappedTrain; t += 1) {
+    trainingEnergy += Math.round(110 * Math.pow(1.09, Math.min(t, 45)));
+  }
+
+  const gearBonus = dragon.gear && dragon.gear !== 'none' ? 650 : 0;
+  const rawTotalBeforeSize =
+    rarityListFloor[rarity] + levelFeedsEnergy + customStarsEquivalent + skillsEquivalent + trainingEnergy;
+  const sizeAndGearBonus = Math.round(rawTotalBeforeSize * (sizeMult - 1) + gearBonus);
+
+  const upgradeInvestmentEnergy = Math.max(
+    rarityListFloor[rarity],
+    Math.round(rawTotalBeforeSize + sizeAndGearBonus)
+  );
+
+  const minStart = Math.max(rarityListFloor[rarity], Math.round(upgradeInvestmentEnergy * 0.72));
+  const suggestedStart = Math.max(minStart + 50, Math.round(upgradeInvestmentEnergy * 1.15));
+  const maxStart = Math.max(suggestedStart + 200, Math.round(upgradeInvestmentEnergy * 2.4));
+
+  const starFloor = rarityStarFloor[rarity];
+  const minStars = Math.max(
+    starFloor,
+    Math.round(
+      (starFloor + totalCustomStars * 0.35 + level * 4 + skillLevel * 2) *
+        (sizeTier === 'XXL' ? 1.5 : sizeTier === 'XL' ? 1.25 : 1)
+    )
+  );
+  const suggestedStars = Math.round(minStars * 1.45);
+  const maxStars = Math.max(suggestedStars + 15, Math.round(minStars * 2.8));
+
+  return {
+    upgradeInvestmentEnergy,
+    breakdown: {
+      levelFeedsEnergy,
+      customStarsEquivalent,
+      skillsEquivalent,
+      trainingEnergy,
+      sizeAndGearBonus,
+    },
+    minStart,
+    maxStart,
+    suggestedStart,
+    minStars,
+    maxStars,
+    suggestedStars,
+  };
 }
 
 export function getAuctionPriceBand(
@@ -599,23 +724,23 @@ export function getAuctionPriceBand(
   level: number,
   sizeTier: DragonSize
 ): { minStart: number; maxStart: number; suggestedStart: number; minStars: number; maxStars: number; suggestedStars: number } {
-  const baseMap: Record<Rarity, { min: number; max: number; starsMin: number; starsMax: number }> = {
-    COMMON: { min: 300, max: 12000, starsMin: 5, starsMax: 60 },
-    UNCOMMON: { min: 800, max: 35000, starsMin: 10, starsMax: 140 },
-    RARE: { min: 2000, max: 95000, starsMin: 20, starsMax: 350 },
-    EPIC: { min: 5000, max: 240000, starsMin: 40, starsMax: 900 },
-    LEGENDARY: { min: 12000, max: 650000, starsMin: 80, starsMax: 2500 },
+  const val = calculateDragonUpgradeInvestmentAndPrice({
+    rarity,
+    level,
+    customLevel: 0,
+    skillLevel: 1,
+    trainingLevel: 0,
+    sizeTier,
+    gear: 'none',
+  });
+  return {
+    minStart: val.minStart,
+    maxStart: val.maxStart,
+    suggestedStart: val.suggestedStart,
+    minStars: val.minStars,
+    maxStars: val.maxStars,
+    suggestedStars: val.suggestedStars,
   };
-  const b = baseMap[rarity] ?? baseMap.COMMON;
-  const lvMult = 1 + Math.max(0, level - 1) * 0.22;
-  const sizeMult = sizeTier === 'XXL' ? 1.85 : sizeTier === 'XL' ? 1.35 : 1;
-  const minStart = Math.round(b.min * lvMult * sizeMult);
-  const maxStart = Math.round(b.max * lvMult * sizeMult);
-  const suggestedStart = Math.round(minStart * 1.75);
-  const minStars = Math.round(b.starsMin * sizeMult);
-  const maxStars = Math.round(b.starsMax * sizeMult);
-  const suggestedStars = Math.round((minStars + maxStars * 0.35));
-  return { minStart, maxStart, suggestedStart, minStars, maxStars, suggestedStars };
 }
 
 export function calculateAuctionListingFee(startPriceCorn: number): number {
@@ -805,14 +930,14 @@ export const ALLIANCE_DONATION_TIERS: AllianceDonationTierMeta[] = [
   {
     id: 'CORN_SMALL',
     titleAr: 'تبرع الطليعة',
-    subtitleAr: 'دعم سريع لخزينة السرب ومجمع البحث',
+    subtitleAr: 'دعم سريع لخزينة السرب',
     energyCost: 500,
     goldCost: 0,
     vaultCornGain: 2200,
     vaultGoldGain: 0,
     techPointsGain: 2800,
     xpGain: 3500,
-    coinsGain: 120,
+    coinsGain: 130,
     powerGain: 35,
     activityGain: 12,
     starsReward: 0,
@@ -820,47 +945,47 @@ export const ALLIANCE_DONATION_TIERS: AllianceDonationTierMeta[] = [
   {
     id: 'CORN_CONVOY',
     titleAr: 'قافلة الإمداد الكبرى',
-    subtitleAr: 'تمويل ضخم لخزينة السرب وأبحاث 100K+',
+    subtitleAr: 'تمويل خزينة السرب وأبحاث 100K+',
     energyCost: 2500,
     goldCost: 0,
     vaultCornGain: 12500,
     vaultGoldGain: 0,
     techPointsGain: 15000,
     xpGain: 18000,
-    coinsGain: 540,
+    coinsGain: 600,
     powerGain: 140,
     activityGain: 25,
-    starsReward: 1,
+    starsReward: 0,
   },
   {
     id: 'CORN_TITAN',
     titleAr: 'خزينة التنين الأعظم',
-    subtitleAr: 'تبرع إمبراطوري يقفز بتمويل البحث والجدارة',
+    subtitleAr: 'تمويل إمبراطوري للبحث والجدارة',
     energyCost: 10000,
     goldCost: 0,
     vaultCornGain: 54000,
     vaultGoldGain: 1,
     techPointsGain: 62000,
     xpGain: 65000,
-    coinsGain: 2100,
+    coinsGain: 2300,
     powerGain: 520,
     activityGain: 45,
-    starsReward: 3,
+    starsReward: 0,
   },
   {
     id: 'GOLD_ROYAL',
     titleAr: 'هبة الذهب الملكي',
-    subtitleAr: 'يُودع ذهب التنانين مباشرة لبدء أبحاث السرب العليا',
+    subtitleAr: 'إيداع ذهب لأبحاث السرب العليا',
     energyCost: 0,
     goldCost: 5,
     vaultCornGain: 30000,
     vaultGoldGain: 5,
     techPointsGain: 45000,
     xpGain: 45000,
-    coinsGain: 1350,
+    coinsGain: 1500,
     powerGain: 320,
     activityGain: 35,
-    starsReward: 5,
+    starsReward: 0,
   },
 ];
 
@@ -880,56 +1005,56 @@ export const ALLIANCE_QUESTS_CATALOG: AllianceQuestMeta[] = [
   {
     id: 'aq_feed',
     titleAr: 'إمداد تنانين السرب',
-    descAr: 'أطعم تنانينك 15 مرة اليوم لدعم الجاهزية القتالية.',
+    descAr: 'أطعم تنانينك 15 مرة اليوم.',
     target: 15,
     activityPts: 20,
-    allianceCoins: 110,
-    corn: 280,
-    stars: 2,
+    allianceCoins: 140,
+    corn: 320,
+    stars: 0,
     xp: 4500,
   },
   {
     id: 'aq_merge',
     titleAr: 'تفريخ الحضّانات',
-    descAr: 'نفّذ 10 عمليات دمج بيض لتغذية خزينة العش.',
+    descAr: 'ادمج 10 بيضات اليوم.',
     target: 10,
     activityPts: 20,
-    allianceCoins: 120,
-    corn: 320,
-    stars: 2,
+    allianceCoins: 150,
+    corn: 360,
+    stars: 0,
     xp: 5500,
   },
   {
     id: 'aq_errands',
     titleAr: 'قرابين السرب',
-    descAr: 'سلّم 3 طلبات لمعبد التفقيس باسم السرب.',
+    descAr: 'سلّم 3 طلبات للمعبد.',
     target: 3,
     activityPts: 25,
-    allianceCoins: 160,
-    corn: 420,
-    stars: 3,
+    allianceCoins: 190,
+    corn: 480,
+    stars: 0,
     xp: 7200,
   },
   {
     id: 'aq_donate',
     titleAr: 'دعم خزينة السرب',
-    descAr: 'تبرع للخزينة أو تقنيات السرب 3 مرات اليوم.',
+    descAr: 'تبرع للخزينة أو التقنيات 3 مرات.',
     target: 3,
     activityPts: 20,
-    allianceCoins: 180,
-    corn: 350,
-    stars: 3,
+    allianceCoins: 210,
+    corn: 400,
+    stars: 0,
     xp: 8500,
   },
   {
     id: 'aq_boss',
     titleAr: 'غارة زعيم السرب',
-    descAr: 'هاجم تنين العاصفة المشترك مرتين اليوم.',
+    descAr: 'هاجم تنين العاصفة مرتين اليوم.',
     target: 2,
     activityPts: 25,
-    allianceCoins: 220,
-    corn: 500,
-    stars: 4,
+    allianceCoins: 260,
+    corn: 560,
+    stars: 0,
     xp: 10000,
   },
 ];
@@ -944,14 +1069,14 @@ export interface AllianceActivityChestMeta {
 }
 
 export const ALLIANCE_ACTIVITY_CHESTS: AllianceActivityChestMeta[] = [
-  { threshold: 25, titleAr: 'صندوق الطليعة', corn: 320, stars: 2, duckGold: 0, allianceCoins: 90 },
-  { threshold: 50, titleAr: 'صندوق الإخوة', corn: 580, stars: 3, duckGold: 1, allianceCoins: 150 },
-  { threshold: 80, titleAr: 'صندوق الغنائم', corn: 920, stars: 5, duckGold: 2, allianceCoins: 240 },
-  { threshold: 100, titleAr: 'صندوق عرش العش', corn: 1500, stars: 8, duckGold: 4, allianceCoins: 420 },
+  { threshold: 25, titleAr: 'صندوق الطليعة', corn: 360, stars: 0, duckGold: 1, allianceCoins: 110 },
+  { threshold: 50, titleAr: 'صندوق الإخوة', corn: 640, stars: 0, duckGold: 2, allianceCoins: 180 },
+  { threshold: 80, titleAr: 'صندوق الغنائم', corn: 1020, stars: 0, duckGold: 3, allianceCoins: 280 },
+  { threshold: 100, titleAr: 'صندوق عرش العش', corn: 1650, stars: 0, duckGold: 5, allianceCoins: 460 },
 ];
 
 export interface AllianceShopOffer {
-  id: 'shop_energy' | 'shop_eggs' | 'shop_breed_eggs' | 'shop_stars' | 'shop_automerge' | 'shop_hammer' | 'shop_gold';
+  id: 'shop_energy' | 'shop_eggs' | 'shop_breed_eggs' | 'shop_medals' | 'shop_automerge' | 'shop_hammer' | 'shop_gold';
   titleAr: string;
   descAr: string;
   costCoins: number;
@@ -961,10 +1086,10 @@ export interface AllianceShopOffer {
 export const ALLIANCE_SHOP_CATALOG: AllianceShopOffer[] = [
   {
     id: 'shop_energy',
-    titleAr: 'إمداد طاقة السرب',
-    descAr: '+650 طاقة فورية لتطوير التنانين ودعم الخزينة',
+    titleAr: 'إمداد طعام التنين',
+    descAr: '+650 طعام تنين لتطوير التنانين',
     costCoins: 140,
-    badgeText: '+650⚡',
+    badgeText: '+650 طعام',
   },
   {
     id: 'shop_eggs',
@@ -976,16 +1101,16 @@ export const ALLIANCE_SHOP_CATALOG: AllianceShopOffer[] = [
   {
     id: 'shop_breed_eggs',
     titleAr: 'بيض تزاوج نقي',
-    descAr: '+3 بيضة تزاوج لترقية تنانين XL و XXL',
+    descAr: '+3 بيضة تزاوج لتنانين XL و XXL',
     costCoins: 260,
     badgeText: '+3 بيضة XL',
   },
   {
-    id: 'shop_stars',
-    titleAr: 'وسام نجوم التحالف',
-    descAr: '+6 نجوم ★ لتخصيص التنانين وفتح الخانات',
-    costCoins: 320,
-    badgeText: '+6 ★',
+    id: 'shop_medals',
+    titleAr: 'صندوق أوسمة القتال',
+    descAr: '+40 وسام قتال 🏅 للعجلة والصقل',
+    costCoins: 240,
+    badgeText: '+40 🏅',
   },
   {
     id: 'shop_automerge',
@@ -1004,7 +1129,7 @@ export const ALLIANCE_SHOP_CATALOG: AllianceShopOffer[] = [
   {
     id: 'shop_gold',
     titleAr: 'سبيكة ذهب التنانين',
-    descAr: '+5 ذهب التنانين 💎 لتفعيل البركات والمواهب',
+    descAr: '+5 ذهب التنانين 💎 للبركات والمواهب',
     costCoins: 520,
     badgeText: '+5 💎',
   },
@@ -1072,62 +1197,62 @@ export const ALLIANCE_COOP_MISSIONS_CATALOG: AllianceCoopMissionMeta[] = [
   {
     id: 'coop_eggs',
     titleAr: 'حملة تجميع ودمج البيض الكبرى',
-    descAr: 'يتعاون أعضاء السرب لدمج 1,500 بيضة وتنمية الحضّانة الإمبراطورية.',
+    descAr: 'دمج 1,500 بيضة جماعية.',
     unitAr: 'بيضة',
     target: 1500,
     initialSeed: 720,
     supportCostCorn: 400,
     supportBoost: 95,
-    rewardCorn: 1400,
-    rewardCoins: 420,
-    rewardStars: 6,
-    rewardGold: 1,
+    rewardCorn: 1550,
+    rewardCoins: 460,
+    rewardStars: 0,
+    rewardGold: 2,
     rewardEgg: 'egg_4',
     rewardXp: 22000,
   },
   {
     id: 'coop_feeds',
     titleAr: 'وليمة إطعام تنانين العش الضخمة',
-    descAr: '4,000 عملية إطعام جماعية لرفع قوة جميع أساطيل السرب.',
+    descAr: '4,000 عملية إطعام جماعية.',
     unitAr: 'إطعام',
     target: 4000,
     initialSeed: 1850,
     supportCostCorn: 450,
     supportBoost: 240,
-    rewardCorn: 1800,
-    rewardCoins: 520,
-    rewardStars: 7,
-    rewardGold: 2,
+    rewardCorn: 1950,
+    rewardCoins: 580,
+    rewardStars: 0,
+    rewardGold: 3,
     rewardXp: 28000,
   },
   {
     id: 'coop_treasury',
     titleAr: 'تحصين خزينة السرب الإمبراطورية',
-    descAr: 'الوصول بالخزينة الجماعية إلى 250,000 طاقة لتمويل أبحاث السرب العليا والحصارات.',
-    unitAr: '⚡',
+    descAr: 'الوصول بالخزينة إلى 250,000 طعام.',
+    unitAr: 'طعام',
     target: 250000,
     initialSeed: 125000,
     supportCostCorn: 800,
     supportBoost: 6500,
-    rewardCorn: 2800,
-    rewardCoins: 750,
-    rewardStars: 8,
-    rewardGold: 4,
+    rewardCorn: 3000,
+    rewardCoins: 820,
+    rewardStars: 0,
+    rewardGold: 5,
     rewardXp: 42000,
   },
   {
     id: 'coop_boss',
     titleAr: 'حملة إبادة زعماء السرب',
-    descAr: 'إلحاق 120,000 ضرر جماعي بزعماء السرب عبر غارات الأعضاء المتتالية.',
+    descAr: 'إلحاق 120,000 ضرر جماعي بالزعماء.',
     unitAr: 'ضرر',
     target: 120000,
     initialSeed: 48000,
     supportCostCorn: 600,
     supportBoost: 7200,
-    rewardCorn: 3200,
-    rewardCoins: 900,
-    rewardStars: 10,
-    rewardGold: 5,
+    rewardCorn: 3400,
+    rewardCoins: 980,
+    rewardStars: 0,
+    rewardGold: 6,
     rewardBreedingEggs: 4,
     rewardXp: 58000,
   },
@@ -1149,97 +1274,7 @@ export interface AllianceRosterNpc {
   online: boolean;
 }
 
-export const ALLIANCE_ROSTER_MEMBERS: AllianceRosterNpc[] = [
-  {
-    id: 'm_leader',
-    name: 'DRAGON_LEADER',
-    role: 'LEADER',
-    rank: 'R5',
-    titleAr: 'قائد السرب',
-    power: 28500,
-    weeklyContrib: 14200,
-    donatedEnergy: 46500,
-    donatedTech: 12400,
-    rallyScore: 8900,
-    dailyActivity: 98,
-    lastSeenAr: 'متصل الآن',
-    online: true,
-  },
-  {
-    id: 'm_officer1',
-    name: 'SAQR_STORM',
-    role: 'DEPUTY',
-    rank: 'R4',
-    titleAr: 'نائب القائد',
-    power: 22400,
-    weeklyContrib: 11400,
-    donatedEnergy: 34200,
-    donatedTech: 9100,
-    rallyScore: 7100,
-    dailyActivity: 91,
-    lastSeenAr: 'متصل الآن',
-    online: true,
-  },
-  {
-    id: 'm_officer2',
-    name: 'FERMER_DRACO',
-    role: 'DEPUTY',
-    rank: 'R4',
-    titleAr: 'نائب القائد',
-    power: 19800,
-    weeklyContrib: 9600,
-    donatedEnergy: 28500,
-    donatedTech: 7600,
-    rallyScore: 5400,
-    dailyActivity: 84,
-    lastSeenAr: 'منذ 12 د',
-    online: false,
-  },
-  {
-    id: 'm_knight1',
-    name: 'LAYLA_FROST',
-    role: 'ELITE',
-    rank: 'R3',
-    titleAr: 'عضو مميز',
-    power: 16900,
-    weeklyContrib: 7850,
-    donatedEnergy: 21400,
-    donatedTech: 5800,
-    rallyScore: 4200,
-    dailyActivity: 79,
-    lastSeenAr: 'متصل الآن',
-    online: true,
-  },
-  {
-    id: 'm_knight2',
-    name: 'OMAR_EMBER',
-    role: 'MEMBER',
-    rank: 'R2',
-    titleAr: 'عضو السرب',
-    power: 13200,
-    weeklyContrib: 5100,
-    donatedEnergy: 14800,
-    donatedTech: 3600,
-    rallyScore: 2800,
-    dailyActivity: 68,
-    lastSeenAr: 'منذ 35 د',
-    online: false,
-  },
-];
-
-function makeMemberDragons(
-  prefix: string,
-  specs: Array<[string, DuckSkinId, Rarity, number, number]>
-): AllianceRallyDragon[] {
-  return specs.map(([name, skin, rarity, level, power], idx) => ({
-    id: `${prefix}_d${idx + 1}`,
-    name,
-    skin,
-    rarity,
-    level,
-    power,
-  }));
-}
+export const ALLIANCE_ROSTER_MEMBERS: AllianceRosterNpc[] = [];
 
 export const ALLIANCE_RALLY_REINFORCEMENT_POOL: Array<{
   id: string;
@@ -1248,179 +1283,7 @@ export const ALLIANCE_RALLY_REINFORCEMENT_POOL: Array<{
   power: number;
   dragonsCount: number;
   dragons: AllianceRallyDragon[];
-}> = [
-  {
-    id: 'r_leader',
-    name: 'DRAGON_LEADER',
-    role: 'LEADER',
-    power: 28500,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_leader', [
-      ['الإمبراطور الذهبي', 'royal', 'LEGENDARY', 5, 11800],
-      ['حارس الرمال', 'pharaoh', 'EPIC', 5, 9200],
-      ['ناب اللهب', 'classic', 'RARE', 4, 7500],
-    ]),
-  },
-  {
-    id: 'r_saqr',
-    name: 'SAQR_STORM',
-    role: 'DEPUTY',
-    power: 22400,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_saqr', [
-      ['تنين الرعد الصوتي', 'dj', 'EPIC', 5, 8900],
-      ['عاصفة الجليد', 'cool', 'RARE', 5, 7300],
-      ['ظل الليل', 'ninja', 'RARE', 4, 6200],
-    ]),
-  },
-  {
-    id: 'r_fahd',
-    name: 'FAHD_TITAN',
-    role: 'DEPUTY',
-    power: 24800,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_fahd', [
-      ['سيد السديم', 'lilac', 'LEGENDARY', 5, 10200],
-      ['جحيم البركان', 'coffee', 'EPIC', 4, 8100],
-      ['حراشف الحجر', 'skeleton', 'RARE', 4, 6500],
-    ]),
-  },
-  {
-    id: 'r_fermer',
-    name: 'FERMER_DRACO',
-    role: 'DEPUTY',
-    power: 19800,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_fermer', [
-      ['تنين السديم الملكي', 'lilac', 'EPIC', 5, 7900],
-      ['مد البحار', 'aqua', 'RARE', 4, 6400],
-      ['جمر اليقطين', 'pumpkin', 'RARE', 4, 5500],
-    ]),
-  },
-  {
-    id: 'r_zaid',
-    name: 'ZAID_SHADOW',
-    role: 'ELITE',
-    power: 18600,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_zaid', [
-      ['الشبح الصامت', 'ninja', 'EPIC', 5, 10100],
-      ['برق الفضاء', 'gamer', 'RARE', 4, 8500],
-    ]),
-  },
-  {
-    id: 'r_layla',
-    name: 'LAYLA_FROST',
-    role: 'ELITE',
-    power: 16900,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_layla', [
-      ['ملكة الجليد', 'cool', 'EPIC', 5, 9400],
-      ['لؤلؤ السماء', 'bride', 'RARE', 4, 7500],
-    ]),
-  },
-  {
-    id: 'r_tariq',
-    name: 'TARIQ_WYRM',
-    role: 'ELITE',
-    power: 17500,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_tariq', [
-      ['صقر الصحراء', 'pharaoh', 'EPIC', 4, 9600],
-      ['أثير القلوب', 'cupid', 'RARE', 4, 7900],
-    ]),
-  },
-  {
-    id: 'r_noor',
-    name: 'NOOR_SOLAR',
-    role: 'MEMBER',
-    power: 15100,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_noor', [
-      ['تنين الشمس الذهبي', 'classic', 'RARE', 4, 8300],
-      ['تنين المحيط', 'aqua', 'UNCOMMON', 4, 6800],
-    ]),
-  },
-  {
-    id: 'r_reem',
-    name: 'REEM_BLAZE',
-    role: 'MEMBER',
-    power: 14600,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_reem', [
-      ['لهيب الفجر', 'pumpkin', 'RARE', 4, 7900],
-      ['سحابة الورد', 'cupid', 'UNCOMMON', 4, 6700],
-    ]),
-  },
-  {
-    id: 'r_omar',
-    name: 'OMAR_EMBER',
-    role: 'MEMBER',
-    power: 13200,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_omar', [
-      ['جمر البراكين', 'coffee', 'RARE', 4, 7200],
-      ['عظم الأثر', 'skeleton', 'UNCOMMON', 3, 6000],
-    ]),
-  },
-  {
-    id: 'r_hala',
-    name: 'HALA_SKY',
-    role: 'MEMBER',
-    power: 11800,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_hala', [
-      ['زهرة الجوهر', 'bride', 'RARE', 4, 6500],
-      ['تيار الصقيع', 'aqua', 'UNCOMMON', 3, 5300],
-    ]),
-  },
-  {
-    id: 'r_karim',
-    name: 'KARIM_APEX',
-    role: 'ELITE',
-    power: 21200,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_karim', [
-      ['كريستال النخبة', 'gamer', 'EPIC', 5, 8600],
-      ['عاصفة الرعد', 'dj', 'RARE', 4, 6900],
-      ['تنين النار', 'classic', 'RARE', 4, 5700],
-    ]),
-  },
-  {
-    id: 'r_sara',
-    name: 'SARA_SOLSTICE',
-    role: 'DEPUTY',
-    power: 23400,
-    dragonsCount: 3,
-    dragons: makeMemberDragons('r_sara', [
-      ['التاج المضيء', 'royal', 'LEGENDARY', 5, 9800],
-      ['جناح السديم', 'lilac', 'EPIC', 4, 7600],
-      ['صقيع الشمال', 'cool', 'RARE', 4, 6000],
-    ]),
-  },
-  {
-    id: 'r_yasser',
-    name: 'YASSER_FURY',
-    role: 'MEMBER',
-    power: 16200,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_yasser', [
-      ['غضب الظل', 'ninja', 'EPIC', 4, 9100],
-      ['حامي العرين', 'skeleton', 'RARE', 4, 7100],
-    ]),
-  },
-  {
-    id: 'r_malik',
-    name: 'MALIK_CHRONO',
-    role: 'ELITE',
-    power: 19200,
-    dragonsCount: 2,
-    dragons: makeMemberDragons('r_malik', [
-      ['حارس الزمن', 'pharaoh', 'EPIC', 5, 10800],
-      ['رعد السماء', 'dj', 'RARE', 4, 8400],
-    ]),
-  },
-];
+}> = [];
 
 export interface AllianceResearchMeta {
   id: AllianceTechId;
@@ -1566,7 +1429,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'MONSTER',
     nameAr: 'عنقاء الجحيم المدرعة',
     level: 18,
-    descAr: 'وحش خريطة متوسط يتطلب تحشيد 3+ أساطيل أعضاء لاختراق درعه الناري.',
+    descAr: 'يتطلب تحشيد 3+ أساطيل لاختراق درعه.',
     coords: { x: 528, y: 542 },
     mapPct: { x: 68, y: 74 },
     requiredPower: 42000,
@@ -1581,12 +1444,12 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 6500,
       techPts: 1800,
       coins: 360,
-      stars: 4,
+      stars: 0,
       gold: 1,
       egg: 'egg_3',
       poolCorn: 1800,
       poolCoins: 420,
-      poolStars: 6,
+      poolStars: 0,
     },
   },
   {
@@ -1594,7 +1457,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'PYRAMID',
     nameAr: 'هرم الرمال الذهبي',
     level: 5,
-    descAr: 'معلم أثري؛ احتلاله لمدة 6 ساعات يدرّ طاقة ونقاط أبحاث ضخمة كل ساعة.',
+    descAr: 'احتلال 6 ساعات يدرّ طعام التنين ونقاط أبحاث.',
     coords: { x: 488, y: 534 },
     mapPct: { x: 26, y: 67 },
     requiredPower: 78000,
@@ -1609,11 +1472,11 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 12000,
       techPts: 3200,
       coins: 620,
-      stars: 6,
+      stars: 0,
       gold: 2,
       poolCorn: 3200,
       poolCoins: 680,
-      poolStars: 10,
+      poolStars: 0,
     },
   },
   {
@@ -1621,7 +1484,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'EVENT',
     nameAr: 'قافلة الكنز السلطانية',
     level: 24,
-    descAr: 'حدث خريطة موقوت محروس بفرسان الظل، محمّل ببيض التزاوج والنجوم وسبائك الذهب.',
+    descAr: 'قافلة محمّلة ببيض التزاوج وسبائك الذهب.',
     coords: { x: 538, y: 518 },
     mapPct: { x: 76, y: 50 },
     requiredPower: 115000,
@@ -1636,12 +1499,12 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 16500,
       techPts: 4400,
       coins: 780,
-      stars: 8,
-      gold: 2,
+      stars: 0,
+      gold: 3,
       breedingEggs: 3,
       poolCorn: 4500,
       poolCoins: 950,
-      poolStars: 14,
+      poolStars: 0,
     },
   },
   {
@@ -1649,7 +1512,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'MONSTER',
     nameAr: 'تنين الهاوية المصفّح',
     level: 32,
-    descAr: 'زعيم عالمي ضخم لا يُسقَط إلا بتحالف 8+ حشود مترابطة وأبحاث حصار متقدمة.',
+    descAr: 'زعيم عالمي يتطلب 8+ حشود مترابطة.',
     coords: { x: 468, y: 476 },
     mapPct: { x: 20, y: 24 },
     requiredPower: 175000,
@@ -1664,12 +1527,12 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 26000,
       techPts: 6800,
       coins: 1100,
-      stars: 12,
+      stars: 0,
       gold: 4,
       egg: 'egg_5',
       poolCorn: 7000,
       poolCoins: 1400,
-      poolStars: 20,
+      poolStars: 0,
     },
   },
   {
@@ -1677,7 +1540,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'EVENT',
     nameAr: 'بوابة الغزو الإمبراطورية',
     level: 40,
-    descAr: 'حدث غزو عالمي ضخم يتطلب تعبئة السرب الكامل مع جوائز استثنائية لصندوق التوزيع.',
+    descAr: 'غزو عالمي ضخم لصندوق التوزيع.',
     coords: { x: 492, y: 468 },
     mapPct: { x: 48, y: 18 },
     requiredPower: 240000,
@@ -1692,12 +1555,12 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 38000,
       techPts: 9800,
       coins: 1550,
-      stars: 16,
-      gold: 5,
+      stars: 0,
+      gold: 6,
       breedingEggs: 5,
       poolCorn: 10500,
       poolCoins: 2100,
-      poolStars: 28,
+      poolStars: 0,
     },
   },
   {
@@ -1705,7 +1568,7 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
     type: 'PYRAMID',
     nameAr: 'هرم أوزيريس الملكي الأعظم',
     level: 10,
-    descAr: 'أعظم أهرام المملكة! يتطلب 310,000+ قوة جماعية ويمنح سيطرة 12 ساعة وعوائد إمبراطورية.',
+    descAr: 'أعظم أهرام المملكة لسيطرة 12 ساعة.',
     coords: { x: 548, y: 488 },
     mapPct: { x: 78, y: 25 },
     requiredPower: 310000,
@@ -1720,11 +1583,11 @@ export const ALLIANCE_MAP_TARGETS: AllianceMapTargetMeta[] = [
       vaultCorn: 55000,
       techPts: 14500,
       coins: 2200,
-      stars: 22,
+      stars: 0,
       gold: 8,
       poolCorn: 16000,
       poolCoins: 3200,
-      poolStars: 40,
+      poolStars: 0,
     },
   },
 ];
@@ -1756,7 +1619,7 @@ export function createInitialRewardPool(): AllianceRewardPool {
   return {
     corn: 12500,
     allianceCoins: 2400,
-    stars: 35,
+    stars: 0,
     duckGold: 8,
     cycleNumber: 1,
   };
@@ -1769,11 +1632,11 @@ export function createInitialAllianceNotifications(): AllianceNotification[] {
       id: `notif_init_${now}`,
       category: 'DIVIDEND_READY',
       titleAr: 'صندوق توزيع غنائم السرب جاهز!',
-      bodyAr: 'تراكم في صندوق الأرباح 12,500⚡ و 2,400🪙 و 35★ و 8💎 جاهزة للتوزيع حسب جدارة الأعضاء.',
+      bodyAr: 'تراكم في صندوق الأرباح 12,500 طعام و 2,400🪙 و 8💎 جاهزة للتوزيع.',
       createdAt: now - 5 * 60 * 1000,
       read: false,
       targetSubTab: 'ROSTER',
-      inviteText: '🏛️ يا إخوة السرب: صندوق توزيع المكافآت الجماعية جاهز! ارفعوا مساهماتكم في الخزينة والأبحاث لزيادة نسبتكم.',
+      inviteText: '🏛️ يا إخوة السرب: صندوق توزيع المكافآت جاهز! ارفعوا مساهماتكم لزيادة نسبتكم.',
     },
   ];
 }
@@ -1830,66 +1693,18 @@ export function formatDurationAr(ms: number): string {
 }
 
 export function createInitialMemberRoles(): Record<string, AllianceMemberRole> {
-  return {
-    m_leader: 'LEADER',
-    m_officer1: 'DEPUTY',
-    m_officer2: 'DEPUTY',
-    m_knight1: 'ELITE',
-    m_knight2: 'MEMBER',
-  };
+  return {};
 }
 
 export function createInitialCoopProgress(): Record<string, number> {
   return ALLIANCE_COOP_MISSIONS_CATALOG.reduce<Record<string, number>>((acc, item) => {
-    acc[item.id] = item.initialSeed;
+    acc[item.id] = 0;
     return acc;
   }, {});
 }
 
 export function createInitialAllianceLogs(): AllianceLogEntry[] {
-  const now = Date.now();
-  return [
-    {
-      id: 'log_seed_1',
-      type: 'RALLY',
-      actor: 'DRAGON_LEADER',
-      message: 'قاد حشد 8 أساطيل وافتتح السيطرة على هرم الرمال الذهبي (+12,000⚡ للخزينة)!',
-      time: '14:35',
-      timestamp: now - 4 * 60 * 1000,
-    },
-    {
-      id: 'log_seed_2',
-      type: 'DONATE',
-      actor: 'SAQR_STORM',
-      message: 'تبرع بقافلة 2,500⚡ (+1,400 نقطة بحث للتحالف · حظ ×2!).',
-      time: '14:28',
-      timestamp: now - 11 * 60 * 1000,
-    },
-    {
-      id: 'log_seed_3',
-      type: 'RESEARCH',
-      actor: 'FERMER_DRACO',
-      message: 'ضخ +3,500 نقطة بحث في تطوير توسعة الحشود الملكية.',
-      time: '14:19',
-      timestamp: now - 20 * 60 * 1000,
-    },
-    {
-      id: 'log_seed_4',
-      type: 'HELP',
-      actor: 'LAYLA_FROST',
-      message: 'سرّعت بوابة التزاوج وأبحاث السرب لـ 6 أعضاء.',
-      time: '14:10',
-      timestamp: now - 29 * 60 * 1000,
-    },
-    {
-      id: 'log_seed_5',
-      type: 'JOIN',
-      actor: 'OMAR_EMBER',
-      message: 'انضم رسمياً إلى صفوف عش التنانين (Draco).',
-      time: '13:52',
-      timestamp: now - 47 * 60 * 1000,
-    },
-  ];
+  return [];
 }
 
 export function appendAllianceLog(
@@ -2113,7 +1928,9 @@ export function calculateAllianceDividendBreakdown(
   const rankMeta = getAllianceRankMeta(pack.contributionTotal ?? 0, playerTotalPower);
 
   const kickedSet = new Set(pack.kickedMemberIds ?? []);
-  const activeNpcMembers = ALLIANCE_ROSTER_MEMBERS.filter((m) => !kickedSet.has(m.id));
+  const activeRealMembers = (pack.realMembers ?? []).filter(
+    (m) => !kickedSet.has(m.publicId) && m.displayName !== state.username
+  );
 
   const rawEntries = [
     ...(pack.joined
@@ -2131,11 +1948,11 @@ export function calculateAllianceDividendBreakdown(
           },
         ]
       : []),
-    ...activeNpcMembers.map((m) => {
-      const assignedRole = memberRoles[m.id] ?? m.role;
+    ...activeRealMembers.map((m) => {
+      const assignedRole = memberRoles[m.publicId] ?? m.role;
       return {
-        id: m.id,
-        name: m.name,
+        id: m.publicId,
+        name: m.displayName,
         role: assignedRole,
         rank: ALLIANCE_ROLE_META[assignedRole].rankCode,
         donatedEnergy: m.donatedEnergy,
@@ -2187,7 +2004,20 @@ export function calculateAllianceDividendBreakdown(
     })
     .sort((a, b) => b.meritScore - a.meritScore);
 
-  const playerShare = members.find((m) => m.isSelf) ?? members[0];
+  const fallbackSelf: AllianceDividendMemberShare = {
+    id: 'player_self',
+    name: state.username,
+    role: rankMeta.roleKey,
+    rank: rankMeta.rank,
+    meritScore: 120,
+    sharePct: 100,
+    cornShare: 40,
+    coinsShare: 15,
+    starsShare: 0,
+    goldShare: 0,
+    isSelf: true,
+  };
+  const playerShare = members.find((m) => m.isSelf) ?? members[0] ?? fallbackSelf;
   return { pool, totalMerit, playerShare, members };
 }
 
@@ -2432,72 +2262,22 @@ export function extractDragonTransferStats(dragon: Duck): {
 }
 
 export function createInitialSwarmDragonState(): SwarmDragonState {
-  const now = Date.now();
-  const seedDonations: SwarmDragonDonationEntry[] = [
-    {
-      id: 'sd_seed_1',
-      donorName: 'DRAGON_LEADER',
-      dragonName: 'تنين الحرس الملكي',
-      skin: 'royal',
-      rarity: 'EPIC',
-      level: 4,
-      customLevel: 3,
-      sizeTier: 'XL',
-      gear: 'crown',
-      aura: 'gold',
-      skillLevel: 3,
-      trainingLevel: 4,
-      powerAdded: 3650,
-      hpAdded: 1920,
-      attackAdded: 295,
-      defenseAdded: 210,
-      speedAdded: 112,
-      donatedAt: now - 3 * 3600 * 1000,
-    },
-    {
-      id: 'sd_seed_2',
-      donorName: 'SAQR_STORM',
-      dragonName: 'تنين الرعد المجنّح',
-      skin: 'dj',
-      rarity: 'RARE',
-      level: 3,
-      customLevel: 2,
-      sizeTier: 'NORMAL',
-      gear: 'wings',
-      aura: 'flame',
-      skillLevel: 2,
-      trainingLevel: 3,
-      powerAdded: 2240,
-      hpAdded: 1210,
-      attackAdded: 195,
-      defenseAdded: 138,
-      speedAdded: 118,
-      donatedAt: now - 90 * 60 * 1000,
-    },
-  ];
-
-  const inheritedPower = seedDonations.reduce((a, b) => a + b.powerAdded, 0);
-  const inheritedHp = seedDonations.reduce((a, b) => a + b.hpAdded, 0);
-  const inheritedAttack = seedDonations.reduce((a, b) => a + b.attackAdded, 0);
-  const inheritedDefense = seedDonations.reduce((a, b) => a + b.defenseAdded, 0);
-  const inheritedSpeed = seedDonations.reduce((a, b) => a + b.speedAdded, 0);
-
   return {
     unlocked: false,
     requiredDragons: 4,
-    donatedCount: seedDonations.length,
+    donatedCount: 0,
     name: 'ليفاياثان السرب الأعظم',
     skin: 'royal',
     level: 1,
     xp: 0,
-    inheritedPower,
-    inheritedHp,
-    inheritedAttack,
-    inheritedDefense,
-    inheritedSpeed,
-    inheritedGearIds: ['crown', 'wings'],
-    inheritedAuraIds: ['gold', 'flame'],
-    inheritedSkins: ['royal', 'dj'],
+    inheritedPower: 0,
+    inheritedHp: 0,
+    inheritedAttack: 0,
+    inheritedDefense: 0,
+    inheritedSpeed: 0,
+    inheritedGearIds: [],
+    inheritedAuraIds: [],
+    inheritedSkins: [],
     upgrades: {
       breath: 0,
       armor: 0,
@@ -2510,7 +2290,7 @@ export function createInitialSwarmDragonState(): SwarmDragonState {
       wings: 0,
       crown: 0,
     },
-    donations: seedDonations,
+    donations: [],
   };
 }
 
@@ -2596,49 +2376,101 @@ export function createDailyAllianceGifts(dateSeed = ''): AllianceGiftItem[] {
   return [
     {
       id: `ag_1_${suffix}`,
-      sender: 'DRAGON_LEADER',
-      titleAr: 'غنيمة إخضاع التنين البري',
+      sender: 'خزينة السرب',
+      titleAr: 'صندوق الغنائم اليومي للسرب',
       rarity: 'EPIC',
-      corn: 420,
-      stars: 3,
-      allianceCoins: 110,
+      corn: 500,
+      stars: 0,
+      allianceCoins: 140,
       claimed: false,
     },
     {
       id: `ag_2_${suffix}`,
-      sender: 'SAQR_STORM',
-      titleAr: 'صندوق موارد الجناح',
+      sender: 'نظام السرب',
+      titleAr: 'حزمة إمداد الأعضاء اليومية',
       rarity: 'RARE',
-      corn: 260,
-      stars: 2,
-      allianceCoins: 75,
+      corn: 320,
+      stars: 0,
+      allianceCoins: 95,
       claimed: false,
     },
     {
       id: `ag_3_${suffix}`,
-      sender: 'LAYLA_FROST',
-      titleAr: 'هدية نشاط الإخوة',
+      sender: 'مكافآت النشاط',
+      titleAr: 'هدية نشاط السرب اليومية',
       rarity: 'COMMON',
-      corn: 160,
-      stars: 1,
-      allianceCoins: 45,
+      corn: 200,
+      stars: 0,
+      allianceCoins: 60,
       claimed: false,
     },
   ];
 }
 
 /**
- * Automatically resets daily economic caps when local calendar day changes.
+ * Automatically resets daily economic caps, timed daily tasks, expired buffs, and timed events.
  */
 export function syncDailyEconomyState(state: GameState): GameState {
   const today = getLocalDateKey();
-  if (state.treasury.dailyDateKey === today) {
-    return state;
+  const now = Date.now();
+  let nextState = state;
+
+  // Clear expired forge buffs automatically when timer expires
+  if (nextState.activeBuffs) {
+    const ab = nextState.activeBuffs;
+    if (
+      (ab.duelFuryUntil > 0 && ab.duelFuryUntil <= now) ||
+      (ab.critEdgeUntil > 0 && ab.critEdgeUntil <= now) ||
+      (ab.eggSurgeUntil > 0 && ab.eggSurgeUntil <= now)
+    ) {
+      nextState = {
+        ...nextState,
+        activeBuffs: {
+          duelFuryUntil: ab.duelFuryUntil > now ? ab.duelFuryUntil : 0,
+          critEdgeUntil: ab.critEdgeUntil > now ? ab.critEdgeUntil : 0,
+          eggSurgeUntil: ab.eggSurgeUntil > now ? ab.eggSurgeUntil : 0,
+        },
+      };
+    }
+  }
+
+  // Rotate weekend live event automatically when its timer ends
+  if (nextState.weekendEventEndsAt && now >= nextState.weekendEventEndsAt) {
+    const stepMs = 12 * 3600 * 1000;
+    const steps = Math.max(1, Math.floor((now - nextState.weekendEventEndsAt) / stepMs) + 1);
+    nextState = {
+      ...nextState,
+      weekendEventIndex: (nextState.weekendEventIndex + steps) % 4,
+      weekendEventEndsAt: nextState.weekendEventEndsAt + steps * stepMs,
+    };
+  }
+
+  // Renew tournament cycle automatically when countdown reaches 0
+  if (nextState.tournament.resetAt && now >= nextState.tournament.resetAt) {
+    const cycleMs = 24 * 3600 * 1000;
+    const elapsedCycles = Math.max(1, Math.floor((now - nextState.tournament.resetAt) / cycleMs) + 1);
+    nextState = {
+      ...nextState,
+      tournament: {
+        ...nextState.tournament,
+        score: 0,
+        claimedMilestones: [],
+        resetSeconds: 86400,
+        resetAt: nextState.tournament.resetAt + elapsedCycles * cycleMs,
+        cycleNumber: (nextState.tournament.cycleNumber ?? 1) + elapsedCycles,
+      },
+    };
+  }
+
+  if (nextState.treasury.dailyDateKey === today) {
+    return nextState;
   }
   return {
-    ...state,
+    ...nextState,
+    dailyTasks: nextState.dailyTasks.map((t) => ({ ...t, progress: 0, claimed: false })),
+    claimedDailyLevelRewards: [],
     treasury: {
-      ...state.treasury,
+      ...nextState.treasury,
       dailyDateKey: today,
       adsWatchedToday: 0,
       maxAdsPerDay: ECONOMY_LIMITS.MAX_DAILY_ADS,
@@ -2652,7 +2484,7 @@ export function syncDailyEconomyState(state: GameState): GameState {
       invitesClaimedToday: 0,
     },
     pack: {
-      ...state.pack,
+      ...nextState.pack,
       activityPoints: 0,
       donationsToday: 0,
       helpsToday: 0,
@@ -2660,21 +2492,21 @@ export function syncDailyEconomyState(state: GameState): GameState {
       claimedActivityChests: [],
       claimedAllianceQuests: [],
       questBaselines: {
-        feeds: state.stats.totalFeeds,
-        merges: state.stats.totalMerges,
-        errands: state.stats.totalErrands,
+        feeds: nextState.stats.totalFeeds,
+        merges: nextState.stats.totalMerges,
+        errands: nextState.stats.totalErrands,
       },
       gifts: createDailyAllianceGifts(today),
     },
     league: {
-      ...state.league,
+      ...nextState.league,
       dailyClaimed: false,
     },
     stats: {
-      ...state.stats,
-      dailyPassDay: state.stats.dailyPassClaimedToday
-        ? ((Math.max(1, state.stats.dailyPassDay || 1)) % 7) + 1
-        : Math.min(7, Math.max(1, state.stats.dailyPassDay || 1)),
+      ...nextState.stats,
+      dailyPassDay: nextState.stats.dailyPassClaimedToday
+        ? ((Math.max(1, nextState.stats.dailyPassDay || 1)) % 7) + 1
+        : Math.min(7, Math.max(1, nextState.stats.dailyPassDay || 1)),
       dailyPassClaimedToday: false,
     },
   };
@@ -2718,9 +2550,9 @@ export function evaluateNextStepAdvice(
   const softCap = getEnergySoftCap(playerTier);
   const active = state.ducks[state.activeDuckIndex] ?? state.ducks[0];
 
-  // 1. Dragon completed feeding for LVL 1..4 and ready to open 24h breeding gate
+  // 1. Dragon completed feeding for LVL 1..4 and ready to open 24h breeding gate (unlocked slots only)
   const readyBreedIdx = state.ducks.findIndex(
-    (d) => d.level < 5 && d.feedsProgress >= d.feedsRequired && !d.breedingEndsAt
+    (d) => !isDragonSlotLocked(d, state.unlockedSlots) && d.level < 5 && d.feedsProgress >= d.feedsRequired && !d.breedingEndsAt
   );
   if (readyBreedIdx >= 0) {
     const target = state.ducks[readyBreedIdx];
@@ -2735,8 +2567,9 @@ export function evaluateNextStepAdvice(
     };
   }
 
-  // 2. XL/XXL dragon can be upgraded with Breeding Eggs
+  // 2. XL/XXL dragon can be upgraded with Breeding Eggs (unlocked slots only)
   const eggUpgradeIdx = state.ducks.findIndex((d) => {
+    if (isDragonSlotLocked(d, state.unlockedSlots)) return false;
     const sz = resolveDragonSize(d);
     if (sz === 'NORMAL' || d.level >= 5) return false;
     return (state.breedingEggs ?? 0) >= getXlEggUpgradeCost(d.level, sz);
@@ -2756,8 +2589,8 @@ export function evaluateNextStepAdvice(
     };
   }
 
-  // 3. Ready to unlock next squad slot
-  if (state.unlockedSlots < 8) {
+  // 3. Ready to unlock next slot when a locked acquired dragon is waiting in it
+  if (state.ducks.length > state.unlockedSlots) {
     const nextSlot = state.unlockedSlots;
     const slotCheck = checkSlotUnlock(nextSlot, state);
     if (slotCheck.canUnlock) {
@@ -2765,7 +2598,7 @@ export function evaluateNextStepAdvice(
         id: `unlock_slot_${nextSlot}`,
         priority: 'URGENT',
         title: `الخانة ${nextSlot + 1} جاهزة للفتح الآن!`,
-        reason: 'استثمر نجومك لتوسيع السرب حسب أقدمية الحصول على التنانين.',
+        reason: 'افتح الخانة المقفلة لتفعيل التنين واستخدامه في اللعب.',
         ctaLabel: `فتح الخانة ${nextSlot + 1}`,
         action: 'UNLOCK_SLOT',
         targetSlotIndex: nextSlot,
@@ -2773,32 +2606,36 @@ export function evaluateNextStepAdvice(
     }
   }
 
-  // 4. Soft-cap guard: suggest burning Energy in Dragon Training or Squad Talents
-  if (active && state.corn >= softCap * 0.85) {
+  // 4. Soft-cap guard: suggest burning Dragon Food in Dragon Training or Squad Talents
+  if (active && !isDragonSlotLocked(active, state.unlockedSlots) && state.corn >= softCap * 0.85) {
     const trainCost = getDragonTrainingCost(active.trainingLevel ?? 0, playerTier);
     if (state.corn >= trainCost) {
       return {
         id: `train_softcap_${active.id}`,
         priority: 'URGENT',
-        title: 'طاقتك تقترب من سقف الخزانة!',
-        reason: `درّب ${active.name} الآن (${trainCost.toLocaleString()}⚡) لرفع الصحة والهجوم.`,
-        ctaLabel: `تدريب القوة (${trainCost}⚡)`,
+        title: 'لديك وفرة طعام تنين للتدريب!',
+        reason: `درّب ${active.name} (${trainCost.toLocaleString()} طعام) لرفع الصحة والهجوم.`,
+        ctaLabel: `تدريب القوة (${trainCost})`,
         action: 'TRAIN_DRAGON',
       };
     }
     return {
       id: 'talent_softcap',
       priority: 'HIGH',
-      title: 'استثمر فائض الطاقة في مواهب السرب',
-      reason: 'طوّر مواهب السرب لحرق الفائض ورفع قوة كل التنانين.',
+      title: 'استثمر طعام التنين في المواهب',
+      reason: 'طوّر مواهب السرب لرفع قوة كل التنانين.',
       ctaLabel: 'مواهب السرب',
       action: 'UPGRADE_TALENT',
     };
   }
 
-  // 5. Dragon at LVL 5 ready for Star Customization ★1..10 toward DMD exchange value
+  // 5. Unlocked dragon at LVL 5 ready for Star Customization ★1..10 toward AMF exchange value
   const customIdx = state.ducks.findIndex(
-    (d) => d.level >= 5 && d.customLevel < ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL && state.stars >= calculateCustomUpgradeCost(d.customLevel)
+    (d) =>
+      !isDragonSlotLocked(d, state.unlockedSlots) &&
+      d.level >= 5 &&
+      d.customLevel < ECONOMY_LIMITS.MAX_CUSTOM_STAR_LEVEL &&
+      state.stars >= calculateCustomUpgradeCost(d.customLevel)
   );
   if (customIdx >= 0) {
     const target = state.ducks[customIdx];
@@ -2808,7 +2645,7 @@ export function evaluateNextStepAdvice(
       id: `custom_star_${target.id}`,
       priority: 'URGENT',
       title: `تخصيص ★${target.customLevel + 1} لـ ${target.name}`,
-      reason: `يضيف +${dmdGain} DMD إلى رصيد محفظتك مقابل ${starCost} ★.`,
+      reason: `يضيف +${dmdGain} AMF مقابل ${starCost} ★.`,
       ctaLabel: `تخصيص ★${target.customLevel + 1} (${starCost}★)`,
       action: 'CUSTOMIZE_STAR',
       targetDuckIndex: customIdx,
@@ -2822,7 +2659,7 @@ export function evaluateNextStepAdvice(
       id: 'claim_task',
       priority: 'HIGH',
       title: 'مهمة يومية مكتملة بانتظارك',
-      reason: `استلم +${readyTask.rewardStars} ★ و +${readyTask.rewardEnergy} طاقة لدعم تطوير التنين.`,
+      reason: `استلم +${readyTask.rewardEnergy} طعام تنين لدعم التطوير.`,
       ctaLabel: 'استلام المكافأة',
       action: 'CLAIM_TASK',
     };
@@ -2833,7 +2670,7 @@ export function evaluateNextStepAdvice(
       id: 'claim_league',
       priority: 'HIGH',
       title: 'مكافأة الدوري اليومية جاهزة',
-      reason: 'احصل على حصتك اليومية من الطاقة والنجوم والذهب من تبويب الحلبة.',
+      reason: 'استلم حصتك اليومية من طعام التنين وذهب التنانين.',
       ctaLabel: 'استلام من الحلبة',
       action: 'CLAIM_LEAGUE',
       targetTab: 'ARENA',
@@ -2845,8 +2682,8 @@ export function evaluateNextStepAdvice(
     return {
       id: 'claim_timed',
       priority: 'HIGH',
-      title: 'إمداد الطاقة المؤقت جاهز',
-      reason: `استلم +${ECONOMY_LIMITS.TIMED_BONUS_ENERGY} طاقة وبيضة تنين جديدة.`,
+      title: 'إمداد طعام التنين جاهز',
+      reason: `استلم +${ECONOMY_LIMITS.TIMED_BONUS_ENERGY} طعام تنين وبيضة جديدة.`,
       ctaLabel: 'استلام الإمداد',
       action: 'CLAIM_TIMED',
     };
@@ -2867,20 +2704,20 @@ export function evaluateNextStepAdvice(
         id: `feed_${active.id}`,
         priority: 'NORMAL',
         title: `أطعم ${active.name} (LVL ${active.level})`,
-        reason: `متبقي ${active.feedsRequired - active.feedsProgress} ضغطة (${cost}⚡ للضغطة · يعاد ضبط التكلفة خلال 8 ساعات).`,
-        ctaLabel: `إطعام (${cost}⚡)`,
+        reason: `متبقي ${active.feedsRequired - active.feedsProgress} ضغطة (${cost} طعام للضغطة).`,
+        ctaLabel: `إطعام (${cost})`,
         action: 'FEED_DRAGON',
       };
     }
   }
 
-  // 9. Low on energy/stars -> recommend Arena or Egg merge
+  // 9. Recommend Arena or Egg merge
   if ((state.treasury.arenaFullWinsToday ?? 0) < ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS) {
     return {
       id: 'go_arena',
       priority: 'NORMAL',
-      title: 'اكسب الطاقة والنجوم في الحلبة',
-      reason: `متبقي لك ${ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS - (state.treasury.arenaFullWinsToday ?? 0)} انتصارات كاملة المكافأة اليوم.`,
+      title: 'اكسب طعام التنين في الحلبة',
+      reason: `متبقي ${ECONOMY_LIMITS.MAX_DAILY_ARENA_FULL_WINS - (state.treasury.arenaFullWinsToday ?? 0)} انتصارات كاملة المكافأة اليوم.`,
       ctaLabel: 'دخول الحلبة',
       action: 'GO_ARENA',
       targetTab: 'ARENA',
@@ -2891,7 +2728,7 @@ export function evaluateNextStepAdvice(
     id: 'go_eggs',
     priority: 'NORMAL',
     title: 'ادمج البيض في ساحة التفقيس',
-    reason: 'حوّل البيض المتراكم إلى طاقة إضافية وقرابين لمعبد البركات.',
+    reason: 'حوّل البيض المتراكم إلى طعام تنين وقرابين.',
     ctaLabel: 'ساحة البيض',
     action: 'GO_EGGS',
     targetTab: 'EGGS',

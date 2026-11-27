@@ -1,13 +1,5 @@
 import { initializeApp } from 'firebase/app';
 import {
-  GoogleAuthProvider,
-  User,
-  getAuth,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-} from 'firebase/auth';
-import {
   collection,
   doc,
   getDoc,
@@ -39,7 +31,6 @@ import {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
 
 export enum OperationType {
   CREATE = 'create',
@@ -74,18 +65,7 @@ export function handleFirestoreError(
 ): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid ?? null,
-      email: auth.currentUser?.email ?? null,
-      emailVerified: auth.currentUser?.emailVerified ?? null,
-      isAnonymous: auth.currentUser?.isAnonymous ?? null,
-      tenantId: auth.currentUser?.tenantId ?? null,
-      providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) || [],
-    },
+    authInfo: {},
     operationType,
     path,
   };
@@ -113,21 +93,6 @@ function sanitizeText(raw: string, maxLen: number): string {
   return String(raw || '').trim().slice(0, maxLen);
 }
 
-export function subscribeAuth(cb: (user: User | null) => void): () => void {
-  return onAuthStateChanged(auth, cb);
-}
-
-export async function signInWithGoogle(): Promise<User | null> {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const cred = await signInWithPopup(auth, provider);
-  return cred.user;
-}
-
-export async function signOutFirebase(): Promise<void> {
-  await signOut(auth);
-}
-
 // Layer 1 & 5: Owner-only private profile with SHA-256 telegramIdHash (never plaintext Telegram ID)
 export async function syncPlayerProfile(
   uid: string,
@@ -150,7 +115,7 @@ export async function syncPlayerProfile(
     leaguePoints: Math.max(0, Math.min(10000000, Math.round(state.league.points ?? 0))),
     dmdTotal: Math.max(0, Math.min(10000000, Number((state.dmdTotal ?? 0).toFixed(2)))),
     dragonCount: Math.max(1, Math.min(200, state.ducks.length)),
-    allianceId: state.pack.joined ? 'global_swarm_alpha' : '',
+    allianceId: state.pack.joined ? (state.pack.allianceId ?? '') : '',
     activeDragonName: sanitizeText(active?.name ?? 'تنين البداية', 48),
     activeDragonSkin: sanitizeText(active?.skin ?? 'aqua', 24),
     activeDragonRarity: active?.rarity ?? 'COMMON',

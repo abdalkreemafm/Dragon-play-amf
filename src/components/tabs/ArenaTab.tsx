@@ -45,6 +45,7 @@ interface ArenaTabProps {
   onRaceResult: (place: number, rewardCorn: number, rewardStars: number, leaguePts: number, xp: number) => void;
   onClaimDailyLeague: () => void;
   onRotateWeekendEvent: () => void;
+  onOpenRankings?: () => void;
 }
 
 const ARENA_RIVALS = RIVALS_CATALOG.map((rv, idx) => ({
@@ -72,6 +73,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
   onRaceResult,
   onClaimDailyLeague,
   onRotateWeekendEvent,
+  onOpenRankings,
 }) => {
   const [arenaMode, setArenaMode] = useState<'DUEL' | 'RACE' | 'LEAGUE'>('DUEL');
   const [selectedRivalIdx, setSelectedRivalIdx] = useState(0);
@@ -121,7 +123,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
         maxHp: scaledHp,
         attackPower: scaledAtk,
         rewardCorn: Math.min(480, 140 + p.activeDragonLevel * 45),
-        rewardStars: Math.min(6, 2 + Math.floor(p.activeDragonLevel / 2)),
+        rewardStars: 1,
         medalReward: 3,
         leaguePts: 50,
         visualLevel: Math.max(1, Math.min(5, p.activeDragonLevel || 1)),
@@ -130,10 +132,18 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
       };
     });
 
-  const combinedRivals = [...ARENA_RIVALS, ...realPlayerRivals];
+  const combinedRivals = [...realPlayerRivals, ...ARENA_RIVALS];
   const rival = combinedRivals[selectedRivalIdx] ?? combinedRivals[0];
   const activeEvent = WEEKEND_EVENTS[state.weekendEventIndex % WEEKEND_EVENTS.length];
   const eventMods = resolveEventModifiers(activeEvent);
+  const [eventNowMs, setEventNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setEventNowMs(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+  const eventMsLeft = Math.max(0, (state.weekendEventEndsAt ?? eventNowMs + 12 * 3600 * 1000) - eventNowMs);
+  const eventHrsLeft = Math.floor(eventMsLeft / 3600000);
+  const eventMinsLeft = Math.floor((eventMsLeft % 3600000) / 60000);
 
   const combatStats = getDuckCombatStats(
     activeDuck,
@@ -556,13 +566,12 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
         const finishedAhead = r.pos.slice(1).filter((p) => p >= r.pos[0]).length;
         const place = finishedAhead + 1;
         setRaceResultPlace(place);
-        const rewardTable = [
-          { corn: 320, stars: 5, pts: 45, xp: 60 },
-          { corn: 190, stars: 2, pts: 25, xp: 40 },
-          { corn: 95, stars: 1, pts: 12, xp: 25 },
+        const rw = [
+          { corn: 320, stars: eventMods.starBonusMult > 1 ? 2 : 0, pts: 45, xp: 60 },
+          { corn: 190, stars: 0, pts: 25, xp: 40 },
+          { corn: 95, stars: 0, pts: 12, xp: 25 },
           { corn: 25, stars: 0, pts: 5, xp: 15 },
-        ];
-        const rw = rewardTable[place - 1] ?? rewardTable[3];
+        ][place - 1] ?? { corn: 25, stars: 0, pts: 5, xp: 15 };
         if (place <= 2) soundFX.playVictory();
         else soundFX.playTabSwitch();
         onRaceResult(place, rw.corn, rw.stars, rw.pts, rw.xp);
@@ -577,8 +586,6 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [racePhase, activeDuck.skillLevel, activeDuck.gear, activeDuck.skin, onRaceResult]);
 
-  const dragonsAnimated = state.dragonMotionEnabled ?? true;
-
   return (
     <div className="h-full w-full overflow-y-auto overscroll-y-contain touch-pan-y">
       <div className="max-w-4xl mx-auto px-3 sm:px-5 py-3 pb-8 space-y-3">
@@ -587,7 +594,12 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
         <div className="flex items-start gap-2 min-w-0">
           <Calendar className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
           <div className="min-w-0 leading-snug">
-            <div className="text-xs font-black text-amber-200">{activeEvent.title}</div>
+            <div className="text-xs font-black text-amber-200 flex items-center gap-2 flex-wrap">
+              <span>{activeEvent.title}</span>
+              <span className="font-mono-num text-[10px] px-1.5 py-0.5 rounded bg-slate-950/70 text-emerald-300">
+                يتجدد خلال {eventHrsLeft}س {String(eventMinsLeft).padStart(2, '0')}د
+              </span>
+            </div>
             <div className="text-[11px] text-slate-300 mt-0.5">{activeEvent.desc}</div>
           </div>
         </div>
@@ -623,21 +635,35 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
           </div>
         </div>
 
-        <button
-          disabled={state.league.dailyClaimed}
-          onClick={() => {
-            soundFX.playChestOpen();
-            onClaimDailyLeague();
-          }}
-          className={`px-3 py-2 rounded-xl text-xs font-black shrink-0 flex items-center gap-1.5 ${
-            state.league.dailyClaimed
-              ? 'bg-slate-800/80 text-slate-400'
-              : 'bg-amber-400 text-slate-950 hover:brightness-105 cursor-pointer'
-          }`}
-        >
-          {state.league.dailyClaimed ? <Check className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
-          <span>{state.league.dailyClaimed ? 'جائزة اليوم ✓' : 'مكافأة الدوري'}</span>
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onOpenRankings && (
+            <button
+              onClick={() => {
+                soundFX.playTabSwitch();
+                onOpenRankings();
+              }}
+              className="px-2.5 py-2 rounded-xl text-xs font-black bg-slate-900/90 border border-amber-400/40 text-amber-300 hover:border-amber-300 flex items-center gap-1 cursor-pointer"
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">التصنيفات</span>
+            </button>
+          )}
+          <button
+            disabled={state.league.dailyClaimed}
+            onClick={() => {
+              soundFX.playChestOpen();
+              onClaimDailyLeague();
+            }}
+            className={`px-3 py-2 rounded-xl text-xs font-black shrink-0 flex items-center gap-1.5 ${
+              state.league.dailyClaimed
+                ? 'bg-slate-800/80 text-slate-400'
+                : 'bg-amber-400 text-slate-950 hover:brightness-105 cursor-pointer'
+            }`}
+          >
+            {state.league.dailyClaimed ? <Check className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+            <span>{state.league.dailyClaimed ? 'جائزة اليوم ✓' : 'مكافأة الدوري'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Arena Sub-Mode Tabs */}
@@ -703,13 +729,10 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                 <div className="flex items-center gap-3">
                   <DragonIllustration
                     skin={activeDuck.skin}
+                    rarity={activeDuck.rarity}
                     level={activeDuck.level}
                     customLevel={activeDuck.customLevel}
-                    gear={activeDuck.gear}
-                    aura={activeDuck.aura}
-                    staked={activeDuck.staked}
                     showEvolutionEffects={true}
-                    motionEnabled={dragonsAnimated}
                     className="w-16 h-16"
                     mood="battle"
                   />
@@ -748,17 +771,20 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                             : 'bg-slate-900/70 border-slate-800 hover:border-slate-600'
                       }`}
                     >
-                      {rv.isRealPlayer && (
-                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-sky-500/20 text-[9px] font-black text-sky-300">
-                          لاعب
-                        </span>
-                      )}
+                      <span
+                        className={`absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-black ${
+                          rv.isRealPlayer
+                            ? 'bg-sky-500/20 text-sky-300'
+                            : 'bg-slate-800/90 text-slate-400'
+                        }`}
+                      >
+                        {rv.isRealPlayer ? 'لاعب حقيقي' : 'تدريب PvE'}
+                      </span>
                       <DragonIllustration
                         skin={rv.skin}
                         level={rv.visualLevel}
                         customLevel={rv.visualCustomLevel}
                         showEvolutionEffects={true}
-                        motionEnabled={dragonsAnimated}
                         className="w-14 h-14 mx-auto"
                         mood="battle"
                       />
@@ -766,10 +792,10 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                         {rv.name}
                       </div>
                       <div className="text-[10px] font-mono-num text-emerald-400">
-                        +{Math.round(rv.rewardCorn * eventMods.arenaEnergyMult).toLocaleString()} طاقة
+                        +{Math.round(rv.rewardCorn * eventMods.arenaEnergyMult).toLocaleString()} طعام
                       </div>
                       <div className="text-[10px] font-mono-num text-indigo-300">
-                        +{rv.rewardStars * eventMods.starBonusMult} ★ · +{rv.medalReward} 🏅 · +{rv.leaguePts} 🏆
+                        {eventMods.starBonusMult > 1 ? `+${rv.rewardStars * eventMods.starBonusMult} ★ · ` : ''}+{rv.medalReward} 🏅 · +{rv.leaguePts} 🏆
                       </div>
                     </button>
                   ))}
@@ -806,7 +832,7 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300 pt-0.5">
                   <span>
-                    تأثير <strong className="text-amber-300">DMD</strong>: +{combatStats.dmdSynergyPct}% قوة
+                    تأثير <strong className="text-amber-300">AMF</strong>: +{combatStats.dmdSynergyPct}% قوة
                   </span>
                   <span>
                     تآزر <strong className="text-rose-300">السرب</strong>:{' '}
@@ -863,13 +889,10 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                   </div>
                   <DragonIllustration
                     skin={activeDuck.skin}
+                    rarity={activeDuck.rarity}
                     level={activeDuck.level}
                     customLevel={activeDuck.customLevel}
-                    gear={activeDuck.gear}
-                    aura={activeDuck.aura}
-                    staked={activeDuck.staked}
                     showEvolutionEffects={true}
-                    motionEnabled={dragonsAnimated}
                     className="w-28 h-28 mx-auto"
                     mood="battle"
                   />
@@ -891,7 +914,6 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                     level={rival.visualLevel}
                     customLevel={rival.visualCustomLevel}
                     showEvolutionEffects={true}
-                    motionEnabled={dragonsAnimated}
                     className="w-28 h-28 mx-auto scale-x-[-1]"
                     mood="battle"
                   />
@@ -999,22 +1021,15 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
           {racePhase === 'LOBBY' && (
             <div className="text-center space-y-4 py-2">
               <h3 className="font-display text-xl font-black text-white">سباق التنانين المباشر (4 متنافسين)</h3>
-              <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-                انقر بسرعة{' '}
-                <span className="hidden sm:inline">
-                  (أو اضغط <strong className="text-amber-300">Space</strong>){' '}
-                </span>
-                لدفع تنينك نحو خط النهاية، وفعّل مهارة التوربو لتجاوز الخصوم!
-              </p>
               <div className="grid grid-cols-3 gap-2 max-w-sm mx-auto text-xs font-mono-num">
                 <div className="p-2.5 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold">
-                  المركز 1: {Math.round(320 * eventMods.arenaEnergyMult)}⚡ + {5 * eventMods.starBonusMult} ★
+                  المركز 1: {Math.round(320 * eventMods.arenaEnergyMult)}🍖{eventMods.starBonusMult > 1 ? ' + 2★' : ''}
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold">
-                  المركز 2: {Math.round(190 * eventMods.arenaEnergyMult)}⚡ + {2 * eventMods.starBonusMult} ★
+                  المركز 2: {Math.round(190 * eventMods.arenaEnergyMult)}🍖
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-900 text-slate-400 font-bold">
-                  المركز 3: {Math.round(95 * eventMods.arenaEnergyMult)}⚡ + {1 * eventMods.starBonusMult} ★
+                  المركز 3: {Math.round(95 * eventMods.arenaEnergyMult)}🍖
                 </div>
               </div>
               <button
@@ -1032,12 +1047,23 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
 
           {racePhase === 'RACING' && (
             <div className="space-y-3">
-              {[
-                { label: `${state.username} (أنت)`, skin: activeDuck.skin, pos: racePositions[0], isYou: true },
-                { label: 'NububiicA', skin: 'cool' as DuckSkinId, pos: racePositions[1], isYou: false },
-                { label: 'CAMA_9L', skin: 'ninja' as DuckSkinId, pos: racePositions[2], isYou: false },
-                { label: 'IgnisRex', skin: 'pumpkin' as DuckSkinId, pos: racePositions[3], isYou: false },
-              ].map((lane) => (
+              {(() => {
+                const realRaceOpponents = leaderboardPlayers.filter((p) => p.uid !== currentUid).slice(0, 3);
+                const fallbackSkins: DuckSkinId[] = ['cool', 'ninja', 'pumpkin'];
+                const lanes = [
+                  { label: `${state.username} (أنت)`, skin: activeDuck.skin, pos: racePositions[0], isYou: true },
+                  ...[0, 1, 2].map((slotIdx) => {
+                    const realOpp = realRaceOpponents[slotIdx];
+                    return {
+                      label: realOpp ? realOpp.username : `تدريب آلي ${slotIdx + 1}`,
+                      skin: (realOpp?.activeDragonSkin as DuckSkinId) || fallbackSkins[slotIdx],
+                      pos: racePositions[slotIdx + 1],
+                      isYou: false,
+                    };
+                  }),
+                ];
+                return lanes;
+              })().map((lane) => (
                 <div
                   key={lane.label}
                   className={`rounded-2xl p-2.5 border ${
@@ -1067,12 +1093,10 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                     >
                       <DragonIllustration
                         skin={lane.skin}
+                        rarity={lane.isYou ? activeDuck.rarity : undefined}
                         level={lane.isYou ? activeDuck.level : 4}
                         customLevel={lane.isYou ? activeDuck.customLevel : 0}
-                        gear={lane.isYou ? activeDuck.gear : undefined}
-                        aura={lane.isYou ? activeDuck.aura : undefined}
                         showEvolutionEffects={lane.isYou}
-                        motionEnabled={dragonsAnimated}
                         className="w-8 h-8"
                       />
                     </div>
@@ -1171,7 +1195,10 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
                       {tier.dailyCorn.toLocaleString()} <CornIcon className="w-3 h-3" />
                     </div>
                     <div className="text-indigo-300 flex items-center gap-1 justify-end">
-                      +{tier.dailyStars} <StarIcon className="w-3 h-3" /> · +{tier.dailyGold} <GoldIcon className="w-3 h-3" />
+                      {tier.dailyStars > 0 && (
+                        <>+{tier.dailyStars} <StarIcon className="w-3 h-3" /> · </>
+                      )}
+                      +{tier.dailyGold} <GoldIcon className="w-3 h-3" />
                     </div>
                   </div>
                 </div>
@@ -1180,47 +1207,64 @@ export const ArenaTab: React.FC<ArenaTabProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            <div className="text-xs font-bold text-slate-400">
-              {leaderboardPlayers.length > 0 ? 'التصنيف العالمي الحي للاعبي تيليجرام:' : 'تصنيف الدوري الحالي:'}
-            </div>
-            {(leaderboardPlayers.length > 0
-              ? leaderboardPlayers.map((p) => ({
-                  id: p.uid,
-                  name: p.username,
-                  pts: p.leaguePoints,
-                  power: p.powerRating,
-                  tier: getLeagueMeta(p.leaguePoints).nameAr,
-                  isYou: p.uid === currentUid,
-                }))
-              : [
-                  { id: 'n1', name: 'SOLAFEIFEI', pts: 1520, power: 18500, tier: 'أسطوري', isYou: false },
-                  { id: 'n2', name: 'ZLOYPHILIPP', pts: 980, power: 12400, tier: 'ماسي', isYou: false },
-                  { id: 'n3', name: 'DRAGON_MAXIM', pts: 540, power: 7900, tier: 'ذهبي', isYou: false },
-                  { id: 'you', name: state.username, pts: state.league.points, power: combatStats.totalPowerScore, tier: leagueMeta.nameAr, isYou: true },
-                  { id: 'n4', name: 'DRACO_SCOUT', pts: 120, power: 2100, tier: 'برونزي', isYou: false },
-                ]
-            )
-              .sort((a, b) => b.pts - a.pts || b.power - a.power)
-              .map((row, idx) => (
-                <div
-                  key={row.id}
-                  className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs ${
-                    row.isYou
-                      ? 'bg-amber-400/20 border-amber-400 text-white font-black'
-                      : 'bg-slate-900/70 border-slate-800 text-slate-300'
-                  }`}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-slate-400">
+                التصنيف العالمي الحي للاعبين الحقيقيين:
+              </div>
+              {onOpenRankings && (
+                <button
+                  onClick={() => {
+                    soundFX.playTabSwitch();
+                    onOpenRankings();
+                  }}
+                  className="text-[11px] font-black text-amber-300 hover:text-amber-200 cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono-num text-amber-400 w-5 shrink-0">#{idx + 1}</span>
-                    <span className="truncate">{row.name}</span>
+                  عرض الكل والأسراب والمسابقات ←
+                </button>
+              )}
+            </div>
+            {(() => {
+              const rows = leaderboardPlayers.map((p) => ({
+                id: p.uid,
+                name: p.username,
+                pts: p.leaguePoints,
+                power: p.powerRating,
+                tier: getLeagueMeta(p.leaguePoints).nameAr,
+                isYou: Boolean(currentUid && p.uid === currentUid),
+              }));
+              if (!rows.some((r) => r.isYou)) {
+                rows.push({
+                  id: currentUid || 'self',
+                  name: state.username,
+                  pts: state.league.points,
+                  power: combatStats.totalPowerScore,
+                  tier: leagueMeta.nameAr,
+                  isYou: true,
+                });
+              }
+              return rows
+                .sort((a, b) => b.pts - a.pts || b.power - a.power)
+                .map((row, idx) => (
+                  <div
+                    key={row.id}
+                    className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs ${
+                      row.isYou
+                        ? 'bg-amber-400/20 border-amber-400 text-white font-black'
+                        : 'bg-slate-900/70 border-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono-num text-amber-400 w-5 shrink-0">#{idx + 1}</span>
+                      <span className="truncate">{row.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3 font-mono-num shrink-0">
+                      <span className="text-[11px] text-slate-400">{row.tier}</span>
+                      <span className="text-sky-300 text-[11px]">{row.power.toLocaleString()}⚡</span>
+                      <span className="text-emerald-400 font-bold">{row.pts}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 font-mono-num shrink-0">
-                    <span className="text-[11px] text-slate-400">{row.tier}</span>
-                    <span className="text-sky-300 text-[11px]">{row.power.toLocaleString()}⚡</span>
-                    <span className="text-emerald-400 font-bold">{row.pts}</span>
-                  </div>
-                </div>
-              ))}
+                ));
+            })()}
           </div>
         </div>
       )}

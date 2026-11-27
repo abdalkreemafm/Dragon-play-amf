@@ -2,28 +2,27 @@ import React, { useEffect, useState } from 'react';
 import {
   Flame,
   Gavel,
-  LogIn,
   PlayCircle,
   PlusCircle,
-  RefreshCw,
-  ShieldCheck,
   ShoppingBag,
-  TrendingUp,
+  Sparkles,
+  Tag,
+  Timer,
+  TrendingDown,
 } from 'lucide-react';
 import { DragonAuctionRecord, GameState, Rarity } from '../../types/game';
 import { RARITY_STYLE, STORE_PACKAGES, formatCompactNumber } from '../../data/gameData';
-import { CornIcon, DmdIcon, DragonIllustration, GodIllustration, StarIcon } from '../art/DuckArt';
+import { CornIcon, DragonIllustration, GodIllustration, StarIcon } from '../art/DuckArt';
+import { DragonExchangeIndex } from '../market/DragonExchangeIndex';
 import { soundFX } from '../../utils/sound';
 import {
   ECONOMY_LIMITS,
   calculateAuctionListingFee,
   calculateAuctionNetProceeds,
-  getAuctionPriceBand,
-  getBarterEnergyForStarsCost,
+  calculateDragonUpgradeInvestmentAndPrice,
+  getBarterEnergyForGoldCost,
   getBarterStarsToEnergyPayout,
   getDragonSellCornPrice,
-  getEnergyHardCap,
-  getEnergySoftCap,
   getPlayerTier,
   resolveDragonSize,
 } from '../../utils/economyEngine';
@@ -33,8 +32,8 @@ interface MarketTabProps {
   liveAuctions?: DragonAuctionRecord[];
   currentUid?: string | null;
   isSignedIn?: boolean;
-  onBidListing: (listingId: string) => void;
-  onBuyNowListing: (listingId: string) => void;
+  onBidListing?: (listingId: string) => void;
+  onBuyNowListing?: (listingId: string) => void;
   onSellOwnDuck: (duckId: string, cornPrice: number) => void;
   onListDragonAuction?: (
     duckId: string,
@@ -47,11 +46,15 @@ interface MarketTabProps {
   onCancelLiveAuction?: (auctionId: string) => Promise<void> | void;
   onClaimBuyerAuction?: (auctionId: string) => Promise<void> | void;
   onClaimSellerAuction?: (auctionId: string) => Promise<void> | void;
-  onSignInGoogle?: () => void;
   onBuyMarketGod: (godId: string) => void;
   onBuyStorePackage: (packageId: string) => void;
   onWatchRewardedAd: (kind: 'energy' | 'stars' | 'eggs') => void;
-  onBarterTrade: (tradeType: 'CORN_TO_STARS' | 'STARS_TO_CORN') => void;
+  onBarterTrade: (tradeType: 'CORN_TO_STARS' | 'STARS_TO_CORN' | 'CORN_TO_GOLD') => void;
+  auctionPreselect?: {
+    section: 'STORE' | 'DUCKS' | 'GODS';
+    dragonId?: string;
+    nonce: number;
+  } | null;
 }
 
 const AuctionCountdown: React.FC<{ endsAtMs: number; compact?: boolean }> = React.memo(
@@ -87,29 +90,55 @@ const AuctionCountdown: React.FC<{ endsAtMs: number; compact?: boolean }> = Reac
 );
 AuctionCountdown.displayName = 'AuctionCountdown';
 
-const RARITY_CHART_MULT: Record<Rarity, { mult: number; baseStars: number }> = {
-  COMMON: { mult: 0.45, baseStars: 22 },
-  UNCOMMON: { mult: 1.0, baseStars: 48 },
-  RARE: { mult: 2.35, baseStars: 112 },
-  EPIC: { mult: 4.8, baseStars: 215 },
-  LEGENDARY: { mult: 9.5, baseStars: 430 },
-};
+const Auction30sBadge: React.FC<{
+  cycleEndsAtMs?: number;
+  createdAtMs?: number;
+  bidCount: number;
+  status: string;
+}> = React.memo(({ cycleEndsAtMs, createdAtMs = Date.now(), bidCount, status }) => {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
-const CHART_SERIES: Record<string, number[]> = {
-  '1ي': [6.42, 6.45, 6.49, 6.48, 6.53, 6.56, 6.597],
-  '1س': [6.55, 6.56, 6.54, 6.58, 6.57, 6.59, 6.597],
-  '1د': [5.9, 6.05, 6.18, 6.24, 6.38, 6.49, 6.597],
-  '5د': [5.2, 5.45, 5.7, 5.88, 6.12, 6.35, 6.597],
-  '10د': [4.6, 4.9, 5.3, 5.65, 5.95, 6.3, 6.597],
-};
+  if (status !== 'ACTIVE') {
+    return (
+      <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 font-bold text-[10px]">
+        {status === 'SOLD' ? '✓ تم البيع' : 'منتهي'}
+      </span>
+    );
+  }
+
+  const targetMs = cycleEndsAtMs || (createdAtMs + 30000);
+  const diffSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+  const displaySec = diffSec > 30 ? 30 : diffSec;
+
+  if (bidCount === 0) {
+    return (
+      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-sky-950/90 border border-sky-400/50 text-sky-200 text-[10.5px] font-mono-num font-bold shadow-[0_0_12px_rgba(56,189,248,0.25)] animate-pulse">
+        <TrendingDown className="w-3.5 h-3.5 text-sky-400 animate-bounce" />
+        <span className="text-[10px] text-slate-300">انخفاض السعر خلال:</span>
+        <span className="font-black text-amber-300 text-xs">00:{String(displaySec).padStart(2, '0')}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500/25 to-yellow-500/25 border border-amber-400/70 text-amber-200 text-[10.5px] font-mono-num font-bold shadow-[0_0_15px_rgba(251,191,36,0.4)] animate-pulse">
+      <Flame className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
+      <span className="text-[10px] text-amber-100">تنبيه مزايدة! ينتهي:</span>
+      <span className="font-black text-yellow-300 text-xs">00:{String(displaySec).padStart(2, '0')}</span>
+    </div>
+  );
+});
+Auction30sBadge.displayName = 'Auction30sBadge';
 
 export const MarketTab: React.FC<MarketTabProps> = ({
   state,
   liveAuctions = [],
   currentUid = null,
   isSignedIn = false,
-  onBidListing,
-  onBuyNowListing,
   onSellOwnDuck,
   onListDragonAuction,
   onBidLiveAuction,
@@ -117,55 +146,73 @@ export const MarketTab: React.FC<MarketTabProps> = ({
   onCancelLiveAuction,
   onClaimBuyerAuction,
   onClaimSellerAuction,
-  onSignInGoogle,
   onBuyMarketGod,
   onBuyStorePackage,
   onWatchRewardedAd,
   onBarterTrade,
+  auctionPreselect = null,
 }) => {
   const [section, setSection] = useState<'STORE' | 'DUCKS' | 'GODS'>('STORE');
-  const [rarityTab, setRarityTab] = useState<Rarity | 'MY_MARKET'>('UNCOMMON');
-  const [timeframe, setTimeframe] = useState<string>('1ي');
-  const [hoverPointIdx, setHoverPointIdx] = useState<number | null>(null);
+  const [rarityTab, setRarityTab] = useState<'ALL' | Rarity | 'MY_MARKET'>('ALL');
   const [confirmSellId, setConfirmSellId] = useState<string | null>(null);
 
-  // Live P2P Auction Composer State
-  const eligibleDragons = state.ducks.filter((d) => !d.breedingEndsAt && state.ducks.length > 1);
+  // Live P2P Auction Composer State (unlocked slots only, requires >1 unlocked dragon)
+  const unlockedCount = state.ducks.filter((d, i) => (d.slotIndex ?? i) < state.unlockedSlots).length;
+  const eligibleDragons = state.ducks.filter(
+    (d, i) => !d.breedingEndsAt && (d.slotIndex ?? i) < state.unlockedSlots && unlockedCount > 1
+  );
   const [showListComposer, setShowListComposer] = useState(false);
+  const [composerRarity, setComposerRarity] = useState<Rarity | 'ALL'>('ALL');
   const [selectedDuckId, setSelectedDuckId] = useState<string>('');
   const [startPriceInput, setStartPriceInput] = useState<number>(800);
   const [buyNowStarsInput, setBuyNowStarsInput] = useState<number>(25);
   const [durationMin, setDurationMin] = useState<number>(60);
   const [busyAuctionId, setBusyAuctionId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!auctionPreselect) return;
+    setSection(auctionPreselect.section);
+    if (auctionPreselect.section === 'DUCKS') {
+      setShowListComposer(true);
+      setComposerRarity('ALL');
+      if (auctionPreselect.dragonId) {
+        setSelectedDuckId(auctionPreselect.dragonId);
+      }
+    }
+  }, [auctionPreselect?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredEligible = eligibleDragons.filter(
+    (d) => composerRarity === 'ALL' || d.rarity === composerRarity
+  );
+
   const activeDraftDragon =
-    eligibleDragons.find((d) => d.id === selectedDuckId) ?? eligibleDragons[0] ?? null;
+    filteredEligible.find((d) => d.id === selectedDuckId) ??
+    filteredEligible[0] ??
+    eligibleDragons.find((d) => d.id === selectedDuckId) ??
+    eligibleDragons[0] ??
+    null;
 
   useEffect(() => {
     if (!activeDraftDragon) return;
     if (activeDraftDragon.id !== selectedDuckId) {
       setSelectedDuckId(activeDraftDragon.id);
     }
-    const band = getAuctionPriceBand(
-      activeDraftDragon.rarity,
-      activeDraftDragon.level,
-      resolveDragonSize(activeDraftDragon)
-    );
+    const band = calculateDragonUpgradeInvestmentAndPrice(activeDraftDragon);
     setStartPriceInput(band.suggestedStart);
     setBuyNowStarsInput(band.suggestedStars);
-  }, [activeDraftDragon?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    activeDraftDragon?.id,
+    activeDraftDragon?.level,
+    activeDraftDragon?.feedsProgress,
+    activeDraftDragon?.customLevel,
+    activeDraftDragon?.skillLevel,
+    activeDraftDragon?.trainingLevel,
+    activeDraftDragon?.gear,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const playerTier = getPlayerTier(state);
-  const softCap = getEnergySoftCap(playerTier);
-  const hardCap = getEnergyHardCap(playerTier);
-  const hardCapPct = Math.min(100, Math.round((state.corn / Math.max(1, hardCap)) * 100));
-  const barterEnergyCost = getBarterEnergyForStarsCost(playerTier);
+  const barterGoldCost = getBarterEnergyForGoldCost(playerTier);
   const barterStarsPayout = getBarterStarsToEnergyPayout(playerTier);
-  const barterStarsToday = state.treasury.barterStarsToday ?? 0;
-  const barterCapReached = barterStarsToday >= ECONOMY_LIMITS.MAX_DAILY_BARTER_STARS;
-
-  const filteredListings =
-    rarityTab === 'MY_MARKET' ? [] : state.marketListings.filter((l) => l.rarity === rarityTab);
 
   const visibleLiveAuctions = liveAuctions.filter((a) => {
     if (rarityTab === 'MY_MARKET') {
@@ -174,40 +221,21 @@ export const MarketTab: React.FC<MarketTabProps> = ({
           (a.sellerUid === currentUid || a.highestBidderUid === currentUid || a.winnerUid === currentUid)
       );
     }
+    if (rarityTab === 'ALL') {
+      return a.status === 'ACTIVE';
+    }
     return a.rarity === rarityTab && a.status === 'ACTIVE';
   });
 
-  const chartMeta =
-    rarityTab === 'MY_MARKET' ? RARITY_CHART_MULT.UNCOMMON : RARITY_CHART_MULT[rarityTab];
-  const baseSeries = CHART_SERIES[timeframe] ?? CHART_SERIES['1ي'];
-  const scaledPoints = baseSeries.map((v) => Number((v * chartMeta.mult).toFixed(2)));
-  const minVal = Math.min(...scaledPoints) - 0.1 * chartMeta.mult;
-  const maxVal = Math.max(...scaledPoints) + 0.08 * chartMeta.mult;
-
-  const svgPoints = scaledPoints.map((val, idx) => {
-    const x = 18 + (idx / (scaledPoints.length - 1)) * 284;
-    const y = 92 - ((val - minVal) / Math.max(0.01, maxVal - minVal)) * 74;
-    return { x, y, val };
-  });
-  const polylineStr = svgPoints.map((p) => `${p.x},${p.y}`).join(' ');
-  const latestChartK = `${Math.round(scaledPoints[scaledPoints.length - 1] * 1000).toLocaleString()}⚡`;
-  const latestChartStars = `${chartMeta.baseStars.toLocaleString()}`;
-
   const renderAuctionComposer = () => {
-    const band = activeDraftDragon
-      ? getAuctionPriceBand(
-          activeDraftDragon.rarity,
-          activeDraftDragon.level,
-          resolveDragonSize(activeDraftDragon)
-        )
-      : null;
+    const band = activeDraftDragon ? calculateDragonUpgradeInvestmentAndPrice(activeDraftDragon) : null;
     const clampedStart = band
-      ? Math.max(band.minStart, Math.min(band.maxStart, Math.round(startPriceInput || band.minStart)))
+      ? Math.max(band.minStart, Math.min(band.maxStart, Math.round(startPriceInput || band.suggestedStart)))
       : 500;
     const clampedStars = band
-      ? Math.max(band.minStars, Math.min(band.maxStars, Math.round(buyNowStarsInput || band.minStars)))
+      ? Math.max(band.minStars, Math.min(band.maxStars, Math.round(buyNowStarsInput || band.suggestedStars)))
       : 20;
-    const listingFee = calculateAuctionListingFee(clampedStart);
+    const listingFee = Math.min(state.corn, calculateAuctionListingFee(clampedStart));
     const netEstimate = calculateAuctionNetProceeds(clampedStart);
 
     return (
@@ -216,12 +244,8 @@ export const MarketTab: React.FC<MarketTabProps> = ({
           <div>
             <h3 className="text-sm font-black text-white flex items-center gap-1.5">
               <Gavel className="w-4 h-4 text-amber-400" />
-              <span>بيع تنينك في مزاد اللاعبين (P2P)</span>
+              <span>بيع تنينك في مزاد اللاعبين (أونلاين)</span>
             </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              ضريبة بيع {Math.round(ECONOMY_LIMITS.AUCTION_SALE_TAX_RATE * 100)}% ورسوم عرض{' '}
-              {Math.round(ECONOMY_LIMITS.AUCTION_LISTING_FEE_RATE * 100)}% تحرق الفائض وتمنع التضخم.
-            </p>
           </div>
           <button
             type="button"
@@ -229,7 +253,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
               soundFX.playTabSwitch();
               setShowListComposer((v) => !v);
             }}
-            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shrink-0 cursor-pointer shadow-md"
           >
             <PlusCircle className="w-3.5 h-3.5" />
             <span>{showListComposer ? 'إخفاء' : 'اعرض تنين'}</span>
@@ -238,34 +262,42 @@ export const MarketTab: React.FC<MarketTabProps> = ({
 
         {showListComposer && (
           <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-3.5 space-y-3">
-            {!isSignedIn ? (
-              <div className="text-center space-y-2.5 py-2">
-                <p className="text-xs text-slate-300">
-                  سجّل الدخول بحساب جوجل المربوط لتوثيق مزاداتك وحفظ التنانين بأمان في قاعدة البيانات السحابية.
-                </p>
-                {onSignInGoogle && (
-                  <button
-                    type="button"
-                    onClick={onSignInGoogle}
-                    className="min-h-[42px] px-5 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-xs inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <LogIn className="w-4 h-4" />
-                    <span>ربط حساب جوجل للمزاد</span>
-                  </button>
-                )}
-              </div>
-            ) : eligibleDragons.length === 0 ? (
+            {eligibleDragons.length === 0 ? (
               <p className="text-xs text-amber-300 text-center py-2">
                 يجب أن تمتلك تنينين على الأقل (وغير مشغولين بالتزاوج) لعرض أحدهم في المزاد.
               </p>
             ) : (
               <>
-                <div>
-                  <div className="text-[11px] font-bold text-slate-300 mb-1.5">اختر التنين:</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                    {eligibleDragons.map((d) => {
+                {/* Classification Filter Tabs */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-300">حدد التنين حسب التصنيف:</span>
+                    <div className="flex items-center gap-1 overflow-x-auto text-[10px]">
+                      {(['ALL', 'COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => {
+                            soundFX.playTabSwitch();
+                            setComposerRarity(r);
+                          }}
+                          className={`px-2 py-0.5 rounded-lg font-bold border transition-colors cursor-pointer ${
+                            composerRarity === r
+                              ? 'bg-amber-400 text-slate-950 border-amber-300'
+                              : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          {r === 'ALL' ? 'الكل' : RARITY_STYLE[r].labelAr}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pt-1">
+                    {filteredEligible.map((d) => {
                       const selected = activeDraftDragon?.id === d.id;
                       const dSize = resolveDragonSize(d);
+                      const dRarity = RARITY_STYLE[d.rarity];
                       return (
                         <button
                           key={d.id}
@@ -274,27 +306,31 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                             soundFX.playTabSwitch();
                             setSelectedDuckId(d.id);
                           }}
-                          className={`p-2 rounded-xl border text-right flex items-center gap-2 cursor-pointer ${
+                          className={`p-2 rounded-xl border text-right flex items-center gap-2 cursor-pointer transition-all ${
                             selected
-                              ? 'bg-amber-400/15 border-amber-400'
+                              ? 'bg-amber-400/20 border-amber-400 ring-1 ring-amber-400/50'
                               : 'bg-slate-950/70 border-slate-800 hover:border-slate-600'
                           }`}
                         >
                           <DragonIllustration
                             skin={d.skin}
+                            rarity={d.rarity}
                             level={d.level}
                             customLevel={d.customLevel}
-                            gear={d.gear}
-                            aura={d.aura}
                             showEvolutionEffects={true}
                             className="w-10 h-10 shrink-0"
                           />
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="text-xs font-black text-white truncate">
                               {d.name} {dSize !== 'NORMAL' ? `(${dSize})` : ''}
                             </div>
-                            <div className="text-[10px] font-mono-num text-amber-300">
-                              {RARITY_STYLE[d.rarity].labelAr} · L{d.level} · ★{d.customLevel}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className={`text-[10px] font-bold ${dRarity.color}`}>
+                                {dRarity.labelAr}
+                              </span>
+                              <span className="text-[10px] font-mono-num text-slate-400">
+                                · L{d.level} · ★{d.customLevel ?? 0}
+                              </span>
                             </div>
                           </div>
                         </button>
@@ -304,69 +340,99 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                 </div>
 
                 {band && activeDraftDragon && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                    <label className="block space-y-1">
-                      <span className="text-[11px] font-bold text-slate-300">
-                        سعر بداية المزاد (⚡ {band.minStart.toLocaleString()} - {band.maxStart.toLocaleString()})
-                      </span>
-                      <input
-                        type="number"
-                        min={band.minStart}
-                        max={band.maxStart}
-                        step={50}
-                        value={startPriceInput}
-                        onChange={(e) => setStartPriceInput(Number(e.target.value))}
-                        className="w-full min-h-[40px] px-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono-num text-xs focus:border-amber-400 focus:outline-none"
-                      />
-                    </label>
-
-                    <label className="block space-y-1">
-                      <span className="text-[11px] font-bold text-slate-300">
-                        الشراء الفوري (★ {band.minStars} - {band.maxStars})
-                      </span>
-                      <input
-                        type="number"
-                        min={band.minStars}
-                        max={band.maxStars}
-                        step={1}
-                        value={buyNowStarsInput}
-                        onChange={(e) => setBuyNowStarsInput(Number(e.target.value))}
-                        className="w-full min-h-[40px] px-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono-num text-xs focus:border-amber-400 focus:outline-none"
-                      />
-                    </label>
-
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-bold text-slate-300 block">مدة المزاد</span>
-                      <div className="grid grid-cols-3 gap-1">
-                        {[15, 60, 180].map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => setDurationMin(m)}
-                            className={`min-h-[40px] rounded-xl font-mono-num text-[11px] font-black border cursor-pointer ${
-                              durationMin === m
-                                ? 'bg-amber-400 text-slate-950 border-amber-300'
-                                : 'bg-slate-950 text-slate-300 border-slate-800'
-                            }`}
-                          >
-                            {m < 60 ? `${m}د` : `${m / 60}س`}
-                          </button>
-                        ))}
+                  <div className="space-y-3">
+                    {/* Dragon Classification & Valuation Banner */}
+                    <div className="rounded-2xl bg-slate-950/90 border border-amber-400/30 p-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-400/20 border border-amber-400/40 text-[10px] font-black text-amber-300">
+                            التصنيف: {RARITY_STYLE[activeDraftDragon.rarity].labelAr}
+                          </span>
+                          <span className="text-[11px] font-black text-emerald-300 flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>سعر السوق الافتتاحي</span>
+                          </span>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono-num font-black text-xs">
+                          {band.suggestedStart.toLocaleString()} ⚡
+                        </span>
                       </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[10px] font-mono-num">
+                        <div className="rounded-lg bg-slate-900 px-2 py-1 flex items-center justify-between">
+                          <span className="text-slate-400">إطعام المستويات:</span>
+                          <span className="text-amber-300 font-bold">{band.breakdown.levelFeedsEnergy.toLocaleString()}⚡</span>
+                        </div>
+                        <div className="rounded-lg bg-slate-900 px-2 py-1 flex items-center justify-between">
+                          <span className="text-slate-400">المهارات والتدريب:</span>
+                          <span className="text-sky-300 font-bold">
+                            {(band.breakdown.skillsEquivalent + band.breakdown.trainingEnergy).toLocaleString()}⚡
+                          </span>
+                        </div>
+                        <div className="rounded-lg bg-slate-900 px-2 py-1 flex items-center justify-between">
+                          <span className="text-slate-400">التخصيص والعتاد:</span>
+                          <span className="text-indigo-300 font-bold">
+                            +{(band.breakdown.customStarsEquivalent + band.breakdown.sizeAndGearBonus).toLocaleString()}⚡
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 30-Second Auction Logic Rules Card */}
+                      <div className="rounded-xl bg-slate-900/90 border border-amber-400/25 p-2.5 space-y-1 text-[11px] leading-relaxed">
+                        <div className="flex items-center gap-1.5 font-black text-amber-300">
+                          <Timer className="w-3.5 h-3.5 text-amber-400" />
+                          <span>منطق المزاد التلقائي (30 ثانية):</span>
+                        </div>
+                        <p className="text-[10px] text-slate-300">
+                          يبدأ المزاد بالسعر المحسوب ({clampedStart.toLocaleString()}⚡) لمدة 30 ثانية؛ إذا لم يزايد أحد ينخفض السعر 5% كل 30 ثانية. وعند أول مزايدة يرتفع السعر 5% ويبدأ عداد 30 ثانية جديد، وإذا لم يزايد أحد ينتقل التنين للمشتري الجديد فوراً.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                      <label className="block space-y-1">
+                        <span className="text-[11px] font-bold text-slate-300">
+                          سعر الافتتاح المخصص (⚡ اختياري)
+                        </span>
+                        <input
+                          type="number"
+                          min={band.minStart}
+                          max={band.maxStart}
+                          step={50}
+                          value={startPriceInput}
+                          onChange={(e) => setStartPriceInput(Number(e.target.value))}
+                          className="w-full min-h-[40px] px-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono-num text-xs focus:border-amber-400 focus:outline-none"
+                        />
+                      </label>
+
+                      <label className="block space-y-1">
+                        <span className="text-[11px] font-bold text-slate-300">
+                          الشراء الفوري بالنجوم (★)
+                        </span>
+                        <input
+                          type="number"
+                          min={band.minStars}
+                          max={band.maxStars}
+                          step={1}
+                          value={buyNowStarsInput}
+                          onChange={(e) => setBuyNowStarsInput(Number(e.target.value))}
+                          className="w-full min-h-[40px] px-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono-num text-xs focus:border-amber-400 focus:outline-none"
+                        />
+                      </label>
                     </div>
                   </div>
                 )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-950/80 border border-slate-800 px-3 py-2 text-[11px] font-mono-num">
-                  <span className="text-rose-300">رسوم الإدراج (5%): -{listingFee.toLocaleString()} ⚡</span>
+                  <span className="text-amber-300">رسوم العرض: {listingFee.toLocaleString()} ⚡</span>
                   <span className="text-emerald-400">
-                    صافي أقل بيع (-8% ضريبة): +{netEstimate.net.toLocaleString()} ⚡
+                    صافي الاستلام المقدر (-8% ضريبة): +{netEstimate.net.toLocaleString()} ⚡
                   </span>
                 </div>
 
                 <button
                   type="button"
-                  disabled={!activeDraftDragon || state.corn < listingFee || busyAuctionId === 'CREATE'}
+                  disabled={!activeDraftDragon || busyAuctionId === 'CREATE'}
                   onClick={async () => {
                     if (!activeDraftDragon || !onListDragonAuction) return;
                     setBusyAuctionId('CREATE');
@@ -378,8 +444,8 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                     }
                   }}
                   className={`w-full min-h-[44px] py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 ${
-                    activeDraftDragon && state.corn >= listingFee && busyAuctionId !== 'CREATE'
-                      ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer'
+                    activeDraftDragon && busyAuctionId !== 'CREATE'
+                      ? 'bg-gradient-to-b from-amber-400 to-yellow-500 text-slate-950 hover:brightness-105 cursor-pointer shadow-lg'
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
                 >
@@ -387,7 +453,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                   <span>
                     {busyAuctionId === 'CREATE'
                       ? 'جارٍ النشر في المزاد...'
-                      : `نشر التنين في المزاد العالمي (رسوم ${listingFee.toLocaleString()} ⚡)`}
+                      : `نشر ${activeDraftDragon ? activeDraftDragon.name : 'التنين'} في المزاد بسعر ${clampedStart.toLocaleString()} ⚡`}
                   </span>
                 </button>
               </>
@@ -404,77 +470,135 @@ export const MarketTab: React.FC<MarketTabProps> = ({
     const expired = nowMs >= a.endsAtMs;
     const isSeller = Boolean(currentUid && a.sellerUid === currentUid);
     const isHighestBidder = Boolean(currentUid && a.highestBidderUid === currentUid);
-    const minNextBid =
-      a.bidCount === 0
-        ? a.startCornPrice
-        : a.currentCornPrice + Math.max(50, Math.round(a.currentCornPrice * 0.1));
+    const bidCost = a.currentCornPrice;
+    const isSold = a.status === 'SOLD' || a.auctionPhase === 'SOLD';
     const canCancel = isSeller && a.status === 'ACTIVE' && a.bidCount === 0;
     const canBuyerClaim =
       !a.buyerClaimed &&
       isHighestBidder &&
       a.bidCount > 0 &&
-      (a.status === 'SOLD' || (a.status === 'ACTIVE' && expired));
+      (isSold || (a.status === 'ACTIVE' && expired));
     const canSellerClaim =
       isSeller &&
       !a.sellerClaimed &&
-      (a.status === 'SOLD' || (a.status === 'ACTIVE' && expired && a.bidCount > 0));
+      (isSold || (a.status === 'ACTIVE' && expired && a.bidCount > 0));
     const dSize = a.dragon.sizeTier ?? 'NORMAL';
     const busy = busyAuctionId === a.id;
 
     return (
-      <div key={a.id} className={`rounded-3xl border realistic-card ${st.border} p-4 space-y-3`}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-1">
+      <div key={a.id} className={`rounded-3xl border realistic-card ${st.border} p-4 space-y-3.5 shadow-xl`}>
+        {/* Dragon Header & Classification */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1.5 flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-black text-emerald-300">
-                مزاد لاعب حقيقي
+              <span className={`px-2 py-0.5 rounded-md border text-[10.5px] font-black ${st.bg} ${st.border} ${st.color}`}>
+                التصنيف: {st.labelAr}
               </span>
               <span className="font-mono-num text-xs font-bold text-slate-300">
-                LVL {a.dragon.level} {dSize !== 'NORMAL' ? dSize : ''} ★{a.dragon.customLevel ?? 0}
+                LVL {a.dragon.level} {dSize !== 'NORMAL' ? `· ${dSize}` : ''} ★{a.dragon.customLevel ?? 0}
               </span>
-              <span className={`text-[11px] font-extrabold ${st.color}`}>{st.labelAr}</span>
+              <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-[9.5px] font-black text-emerald-300">
+                مزاد أونلاين
+              </span>
             </div>
-            <div className="text-sm font-black text-white">{a.dragon.name}</div>
-            <div className="text-[11px] text-slate-400 font-mono-num">
-              البائع: {a.sellerName}
-              {a.highestBidderName ? ` · أعلى مزايد: ${a.highestBidderName}` : ' · بدون مزايدات بعد'}
+
+            <div className="text-base font-black text-white truncate">{a.dragon.name}</div>
+
+            <div className="text-[11px] text-slate-400 font-mono-num flex flex-wrap gap-2">
+              <span>
+                البائع: <span className="text-slate-300 font-bold">{a.sellerName}</span>
+              </span>
+              {a.highestBidderName ? (
+                <span>
+                  · أعلى مزايد: <span className="text-amber-300 font-bold">{a.highestBidderName}</span>
+                </span>
+              ) : (
+                <span className="text-slate-500">· لم يزايد أحد بعد</span>
+              )}
             </div>
+
+            {/* Dragon Stats preview */}
+            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono-num pt-0.5">
+              <span>تصنيف القوة: {a.dragon.powerRating ?? (RARITY_STYLE[a.rarity].basePower + a.dragon.level * 25)}</span>
+              <span>·</span>
+              <span>المهارة: Lv.{a.dragon.skillLevel ?? 0}</span>
+              <span>·</span>
+              <span>التدريب: Lv.{a.dragon.trainingLevel ?? 0}</span>
+            </div>
+
+            {a.valuation && (
+              <div className="text-[10px] font-mono-num text-emerald-400/90 bg-emerald-950/40 border border-emerald-500/30 rounded-lg px-2 py-1 inline-block">
+                السعر السوقي التلقائي: {a.valuation.suggestedStartCorn.toLocaleString()}⚡
+              </div>
+            )}
           </div>
+
           <DragonIllustration
             skin={a.dragon.skin}
+            rarity={a.rarity}
             level={a.dragon.level}
             customLevel={a.dragon.customLevel ?? 0}
-            gear={a.dragon.gear}
-            aura={a.dragon.aura}
             showEvolutionEffects={true}
-            className="w-20 h-20 shrink-0"
+            className="w-20 h-20 shrink-0 object-contain drop-shadow-md"
           />
         </div>
 
-        <div className="flex items-center justify-between text-xs px-1">
-          <div className="flex items-center gap-2">
-            <AuctionCountdown endsAtMs={a.endsAtMs} />
-            {isHighestBidder && <span className="text-emerald-400 font-bold">· عرضك متصدر!</span>}
-            {isSeller && <span className="text-amber-300 font-bold">· مزادك</span>}
+        {/* Dynamic 30-Second Auction Clock & Highlighted Price Bar with CSS Animations */}
+        <div className="rounded-2xl p-3 bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/15 border border-amber-400/50 shadow-[0_0_18px_rgba(251,191,36,0.22)] relative overflow-hidden space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-300">السعر الحالي:</span>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-950/80 border border-amber-400/80 shadow-[0_0_12px_rgba(251,191,36,0.3)] animate-pulse">
+                <CornIcon className="w-4 h-4 text-amber-400" />
+                <span className="text-base font-black text-amber-300 font-mono-num tracking-wide">
+                  {formatCompactNumber(a.currentCornPrice)} ⚡
+                </span>
+                {a.lastPriceDirection === 'UP' && (
+                  <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                    +5% ارتفع
+                  </span>
+                )}
+                {a.lastPriceDirection === 'DOWN' && (
+                  <span className="text-[10px] font-black text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded">
+                    -5% انخفض
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 30-Second Dynamic Countdown Indicator */}
+            <Auction30sBadge
+              cycleEndsAtMs={a.cycleEndsAtMs}
+              createdAtMs={a.createdAtMs}
+              bidCount={a.bidCount}
+              status={a.status}
+            />
           </div>
-          <div className="flex items-center gap-3 font-mono-num font-bold">
-            <span className="text-emerald-400 flex items-center gap-1">
-              <CornIcon className="w-3.5 h-3.5" />
-              {formatCompactNumber(a.currentCornPrice)}
-            </span>
-            <span className="text-indigo-400 flex items-center gap-1">
-              <StarIcon className="w-3.5 h-3.5" />
-              {a.buyNowStars}
-            </span>
+
+          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-amber-400/20 text-slate-400 font-mono-num">
+            <div className="flex items-center gap-1.5">
+              <Timer className="w-3.5 h-3.5 text-slate-400" />
+              <span>إجمالي وقت العرض:</span>
+              <AuctionCountdown endsAtMs={a.endsAtMs} compact />
+            </div>
+            <div className="flex items-center gap-2">
+              {isHighestBidder && <span className="text-emerald-400 font-black">أنت المتصدر حالياً! ★</span>}
+              {isSeller && <span className="text-amber-300 font-black">تنينك المعروض</span>}
+              <div className="flex items-center gap-1 text-indigo-300 font-bold">
+                <StarIcon className="w-3.5 h-3.5" />
+                <span>شراء فوري: {a.buyNowStars}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {!isSeller && a.status === 'ACTIVE' && !expired && (
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {!isSeller && a.status === 'ACTIVE' && !expired && !isSold && (
             <>
               <button
                 type="button"
-                disabled={!isSignedIn || isHighestBidder || state.corn < minNextBid || busy}
+                disabled={!isSignedIn || isHighestBidder || state.corn < bidCost || busy}
                 onClick={async () => {
                   if (!onBidLiveAuction) return;
                   setBusyAuctionId(a.id);
@@ -484,15 +608,19 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                     setBusyAuctionId(null);
                   }
                 }}
-                className={`flex-1 min-h-[42px] py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 ${
-                  isSignedIn && !isHighestBidder && state.corn >= minNextBid && !busy
-                    ? 'bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 cursor-pointer'
+                className={`flex-1 min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all ${
+                  isSignedIn && !isHighestBidder && state.corn >= bidCost && !busy
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-[0_0_15px_rgba(251,191,36,0.35)] hover:brightness-110 active:scale-95 cursor-pointer animate-pulse'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                <Gavel className="w-3.5 h-3.5" />
+                <Gavel className="w-4 h-4" />
                 <span className="font-mono-num">
-                  {isHighestBidder ? 'عرضك الأعلى' : `زايد ${formatCompactNumber(minNextBid)}⚡`}
+                  {isHighestBidder
+                    ? 'أنت أعلى مزايد (ينتقل إليك عند انتهاء الـ 30ث)'
+                    : a.bidCount === 0
+                      ? `شراء / بدء المزايدة بسعر ${formatCompactNumber(bidCost)} ⚡`
+                      : `زايد الآن وارفع السعر (+5%) بسعر ${formatCompactNumber(bidCost)} ⚡`}
                 </span>
               </button>
 
@@ -508,14 +636,14 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                     setBusyAuctionId(null);
                   }
                 }}
-                className={`flex-1 min-h-[42px] py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 ${
+                className={`min-h-[44px] py-2.5 px-4 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
                   isSignedIn && state.stars >= a.buyNowStars && !busy
-                    ? 'bg-indigo-500 text-white hover:bg-indigo-400 cursor-pointer'
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg cursor-pointer active:scale-95'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                <StarIcon className="w-3.5 h-3.5" />
-                <span className="font-mono-num">شراء فوري {a.buyNowStars}</span>
+                <StarIcon className="w-4 h-4 text-yellow-300" />
+                <span className="font-mono-num">شراء فوري {a.buyNowStars} ★</span>
               </button>
             </>
           )}
@@ -533,9 +661,9 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                   setBusyAuctionId(null);
                 }
               }}
-              className="w-full min-h-[42px] py-2 px-3 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-400 to-green-500 text-slate-950 font-black text-xs cursor-pointer shadow-lg hover:brightness-105 active:scale-95 animate-bounce"
             >
-              فزت بالمزاد! استلم التنين الآن 🐉
+              🎉 مبروك! فزت بالمزاد بعد انتهاء الـ 30 ثانية · استلم التنين الآن 🐉
             </button>
           )}
 
@@ -552,9 +680,9 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                   setBusyAuctionId(null);
                 }
               }}
-              className="w-full min-h-[42px] py-2 px-3 rounded-xl bg-amber-400 text-slate-950 font-black text-xs cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs cursor-pointer shadow-lg hover:brightness-105 active:scale-95"
             >
-              تحصيل عوائد البيع (صافي بعد ضريبة 8%) 💰
+              💰 تحصيل أرباح البيع بالمزاد (صافي بعد ضريبة 8%)
             </button>
           )}
 
@@ -571,9 +699,9 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                   setBusyAuctionId(null);
                 }
               }}
-              className="w-full min-h-[40px] py-2 px-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-rose-400 text-slate-200 font-bold text-xs cursor-pointer"
+              className="w-full min-h-[40px] py-2 px-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-rose-400 text-slate-200 font-bold text-xs cursor-pointer transition-colors"
             >
-              {expired ? 'انتهى بدون عروض · استرداد التنين' : 'إلغاء العرض واسترداد التنين'}
+              {expired ? 'انتهى العرض بدون مزايدة · استرداد التنين' : 'إلغاء المزاد واسترداد التنين إلى حظيرتك'}
             </button>
           )}
         </div>
@@ -595,7 +723,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
               : 'text-slate-300 hover:text-white'
           }`}
         >
-          المتجر والصندوق
+          المتجر والحزم
         </button>
         <button
           onClick={() => {
@@ -627,78 +755,12 @@ export const MarketTab: React.FC<MarketTabProps> = ({
 
       {section === 'STORE' ? (
         <div className="space-y-4 pb-6">
-          {/* Anti-Inflation Hard Cap Status Bar */}
-          <div className="bg-[#181b24] border border-sky-500/30 rounded-3xl p-4 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-black text-white">سقف خزانة الطاقة (حماية الاقتصاد · الرتبة {playerTier})</span>
-              <span className="font-mono-num text-emerald-400 font-black">
-                {formatCompactNumber(state.corn)} / {formatCompactNumber(hardCap)} ⚡
-              </span>
-            </div>
-            <div className="h-2.5 w-full rounded-full bg-slate-900 overflow-hidden border border-slate-800">
-              <div
-                className={`h-full transition-all ${
-                  hardCapPct >= 90 ? 'bg-rose-500' : hardCapPct >= 65 ? 'bg-amber-400' : 'bg-emerald-400'
-                }`}
-                style={{ width: `${hardCapPct}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono-num">
-              <span>حد التهدئة: {formatCompactNumber(softCap)}⚡</span>
-              <span>السقف الأقصى: {formatCompactNumber(hardCap)}⚡</span>
-            </div>
-          </div>
-
-          {/* DMD Reserve Treasury (50% Reserve / 50% Ops) */}
-          <div className="realistic-card border border-amber-400/40 rounded-3xl p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <DmdIcon className="w-6 h-6" />
-                <div>
-                  <h3 className="text-sm font-black text-white">صندوق دعم عملة DMD المستقبلية</h3>
-                  <p className="text-[11px] text-slate-400">
-                    شفافية مالية كاملة: 50% لاحتياطي دعم DMD و 50% للتطوير والتشغيل
-                  </p>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-black text-emerald-300 flex items-center gap-1 shrink-0">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>DMD غير مباعة</span>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center font-mono-num">
-              <div className="rounded-2xl bg-slate-900/90 border border-emerald-500/30 p-2.5">
-                <div className="text-[10px] text-slate-400">احتياطي DMD (50%)</div>
-                <div className="text-base font-black text-emerald-400 mt-0.5">
-                  ${state.treasury.reserveUsd.toFixed(2)}
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-2.5">
-                <div className="text-[10px] text-slate-400">التشغيل والتطوير (50%)</div>
-                <div className="text-base font-black text-sky-300 mt-0.5">
-                  ${state.treasury.opsUsd.toFixed(2)}
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-900/90 border border-amber-400/30 p-2.5">
-                <div className="text-[10px] text-slate-400">رصيد محفظتك</div>
-                <div className="text-base font-black text-amber-300 mt-0.5">
-                  {state.dmdTotal.toFixed(2)}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 py-2 text-[11px] text-slate-300 leading-relaxed">
-              🔒 <strong className="text-white">سياسة العملة الرقمية:</strong> عملة <strong className="text-amber-300">DMD</strong> لا تُعدَّن ولا تُباع في المتجر؛ بل هي رصيد في المحفظة يُكتسب حصراً عبر تخصيص التنانين (★1 ← ★10) وتُستبدل عند الإطلاق الرسمي في المنصات.
-            </div>
-          </div>
-
           {/* Store Packages */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between px-1">
               <h3 className="text-sm font-black text-white flex items-center gap-1.5">
                 <ShoppingBag className="w-4 h-4 text-amber-400" />
-                <span>حزم المتجر الرسمية (50% تدعم صندوق DMD)</span>
+                <span>حزم المتجر الرسمية</span>
               </h3>
             </div>
 
@@ -713,12 +775,11 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                       <span className="px-2 py-0.5 rounded-md bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-black">
                         {pkg.tag}
                       </span>
-                      <span className="font-mono-num text-xs font-bold text-emerald-400">
-                        +${(pkg.priceUsd * 0.5).toFixed(2)} للصندوق
+                      <span className="font-mono-num text-xs font-bold text-amber-300">
+                        متاح فوري
                       </span>
                     </div>
                     <h4 className="text-sm font-black text-white">{pkg.title}</h4>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{pkg.desc}</p>
                     <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[11px] font-mono-num font-bold">
                       <span className="text-indigo-300 flex items-center gap-1">
                         <StarIcon className="w-3.5 h-3.5" /> +{pkg.starsReward}
@@ -743,24 +804,18 @@ export const MarketTab: React.FC<MarketTabProps> = ({
           {/* Optional Rewarded Ads (Max 4/day) */}
           <div className="bg-[#181b24] border border-emerald-500/30 rounded-3xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                  <PlayCircle className="w-4 h-4 text-emerald-400" />
-                  <span>إعلانات المكافآت الاختيارية</span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  بإرادتك بالكامل — تدعم صندوق DMD بنسبة 50% من عائد الإعلان (بدون إعلانات إجبارية).
-                </p>
-              </div>
+              <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                <PlayCircle className="w-4 h-4 text-emerald-400" />
+                <span>مكافآت الإعلانات الاختيارية</span>
+              </h3>
               <span className="font-mono-num text-xs font-black text-amber-300 shrink-0">
                 {state.treasury.adsWatchedToday} / {state.treasury.maxAdsPerDay} اليوم
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {[
-                { kind: 'energy' as const, title: `+${ECONOMY_LIMITS.AD_ENERGY_REWARD} طاقة ⚡`, sub: 'إطعام سريع' },
-                { kind: 'stars' as const, title: `+${ECONOMY_LIMITS.AD_STARS_REWARD} نجوم ★`, sub: 'تخصيص وخانات' },
+                { kind: 'energy' as const, title: `+${ECONOMY_LIMITS.AD_ENERGY_REWARD} طعام تنين 🍖`, sub: 'إطعام سريع' },
                 { kind: 'eggs' as const, title: `+${ECONOMY_LIMITS.AD_EGGS_REWARD} بيضة 🥚`, sub: 'ساحة الدمج' },
               ].map((adOpt) => {
                 const limitReached = state.treasury.adsWatchedToday >= state.treasury.maxAdsPerDay;
@@ -823,10 +878,20 @@ export const MarketTab: React.FC<MarketTabProps> = ({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 sm:flex sm:flex-wrap sm:items-center gap-1.5 pb-2.5 mb-3 border-b border-slate-800 shrink-0">
-            {(['UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MY_MARKET'] as const).map((tab) => {
+          <DragonExchangeIndex
+            liveAuctions={liveAuctions}
+            selectedRarity={rarityTab}
+            onSelectRarity={(r) => {
+              soundFX.playTabSwitch();
+              setRarityTab(r);
+            }}
+          />
+
+          <div className="grid grid-cols-4 sm:flex sm:flex-wrap sm:items-center gap-1.5 pb-2.5 mb-3 border-b border-slate-800 shrink-0">
+            {(['ALL', 'COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MY_MARKET'] as const).map((tab) => {
               const active = rarityTab === tab;
-              const label = tab === 'MY_MARKET' ? 'سوقي ومزادي' : RARITY_STYLE[tab].labelAr;
+              const label =
+                tab === 'ALL' ? 'الكل' : tab === 'MY_MARKET' ? 'سوقي ومزادي' : RARITY_STYLE[tab].labelAr;
               return (
                 <button
                   key={tab}
@@ -862,29 +927,26 @@ export const MarketTab: React.FC<MarketTabProps> = ({
               {/* Quick Resource Barter Exchange */}
               <div className="bg-[#181b24] border border-amber-400/30 rounded-2xl p-4 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-black text-amber-300">مقايضة الطاقة والنجوم (الرتبة {playerTier})</h3>
-                  <span className="font-mono-num text-[11px] font-bold text-slate-300">
-                    سقف النجوم: {barterStarsToday}/{ECONOMY_LIMITS.MAX_DAILY_BARTER_STARS} اليوم
+                  <h3 className="text-sm font-black text-amber-300">مقايضة الموارد (الرتبة {playerTier})</h3>
+                  <span className="font-mono-num text-[11px] font-bold text-slate-400">
+                    متوازن ضد التضخم
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">
-                  تسعير تصاعدي متوازن مع رتبك لحماية الاقتصاد ومنع التضخم.
-                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
-                    disabled={barterCapReached || state.corn < barterEnergyCost}
-                    onClick={() => onBarterTrade('CORN_TO_STARS')}
+                    disabled={state.corn < barterGoldCost}
+                    onClick={() => onBarterTrade('CORN_TO_GOLD')}
                     className={`min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-between border ${
-                      !barterCapReached && state.corn >= barterEnergyCost
+                      state.corn >= barterGoldCost
                         ? 'bg-slate-900 border-slate-700 hover:border-amber-400 text-white cursor-pointer'
                         : 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed'
                     }`}
                   >
                     <span className="flex items-center gap-1 font-mono-num">
-                      <CornIcon className="w-3.5 h-3.5" /> {barterEnergyCost.toLocaleString()} طاقة
+                      <CornIcon className="w-3.5 h-3.5" /> {barterGoldCost.toLocaleString()} طعام
                     </span>
-                    <span className="flex items-center gap-1 text-indigo-300 font-mono-num">
-                      {barterCapReached ? 'اكتمل اليوم' : '← +10'} <StarIcon className="w-3.5 h-3.5" />
+                    <span className="flex items-center gap-1 text-amber-300 font-mono-num">
+                      ← +12 💎
                     </span>
                   </button>
 
@@ -908,10 +970,7 @@ export const MarketTab: React.FC<MarketTabProps> = ({
               </div>
 
               <div className="bg-[#181b24] border border-slate-800 rounded-2xl p-4">
-                <h3 className="text-sm font-black text-white mb-1">البيع الفوري للخزينة (سريع)</h3>
-                <p className="text-xs text-slate-400 mb-3">
-                  بيع فوري مقابل الطاقة أو استخدم نموذج المزاد بالأعلى للبيع للاعبين الآخرين.
-                </p>
+                <h3 className="text-sm font-black text-white mb-2.5">البيع الفوري للخزينة (طعام تنين)</h3>
                 <div className="space-y-2.5">
                   {eligibleDragons.map((d) => {
                     const sellPrice = getDragonSellCornPrice(d, playerTier);
@@ -924,10 +983,9 @@ export const MarketTab: React.FC<MarketTabProps> = ({
                         <div className="flex items-center gap-2.5">
                           <DragonIllustration
                             skin={d.skin}
+                            rarity={d.rarity}
                             level={d.level}
                             customLevel={d.customLevel}
-                            gear={d.gear}
-                            aura={d.aura}
                             showEvolutionEffects={true}
                             className="w-12 h-12"
                           />
@@ -988,201 +1046,21 @@ export const MarketTab: React.FC<MarketTabProps> = ({
             </div>
           ) : (
             <div className="space-y-4 pb-6">
-              {visibleLiveAuctions.length > 0 && (
+              {visibleLiveAuctions.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="text-xs font-black text-emerald-300 px-1">مزادات اللاعبين الحية (متزامنة):</div>
+                  <div className="text-xs font-black text-emerald-300 px-1">
+                    مزادات اللاعبين الحية · {rarityTab === 'ALL' ? 'جميع التصنيفات' : RARITY_STYLE[rarityTab].labelAr} ({visibleLiveAuctions.length})
+                  </div>
                   {visibleLiveAuctions.map(renderLiveAuctionCard)}
                 </div>
+              ) : (
+                <div className="rounded-3xl bg-[#181b24] border border-slate-800 p-6 text-center space-y-2">
+                  <Gavel className="w-9 h-9 text-slate-500 mx-auto" />
+                  <div className="text-sm font-black text-white">
+                    لا توجد مزادات نشطة حالياً في {rarityTab === 'ALL' ? 'السوق' : `فئة ${RARITY_STYLE[rarityTab].labelAr}`}
+                  </div>
+                </div>
               )}
-
-              {filteredListings.map((item) => {
-                const st = RARITY_STYLE[item.rarity];
-                const nextBidCorn = Math.round(item.cornPrice * 1.12);
-                const endsAtMs = item.endsAt ?? Date.now() + item.timeLeftSec * 1000;
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-3xl border realistic-card ${
-                      item.rivalSniped ? 'border-rose-500 animate-hit-shake' : st.border
-                    } p-4 space-y-3`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono-num text-xs font-bold text-slate-300">
-                            LVL {item.level} {item.xl ? 'XL' : ''}
-                          </span>
-                          <span className={`text-[11px] font-extrabold ${st.color}`}>{st.labelAr}</span>
-                        </div>
-                        <div className="text-sm font-black text-white">{item.duckName}</div>
-                        <div className="text-[11px] text-slate-400 font-mono-num">
-                          البائع: {item.seller}
-                          {item.lastBidder ? ` · أعلى مزايد: ${item.lastBidder}` : ''}
-                        </div>
-                      </div>
-                      <DragonIllustration
-                        skin={item.skin}
-                        level={item.level}
-                        showEvolutionEffects={true}
-                        className="w-24 h-24 shrink-0 drop-shadow-[0_10px_14px_rgba(0,0,0,0.75)]"
-                      />
-                    </div>
-
-                    {item.rivalSniped && item.soldStatus === 'ACTIVE' && (
-                      <div className="px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-300 text-xs font-black flex items-center gap-1.5">
-                        <Flame className="w-4 h-4 text-rose-400" />
-                        <span>كسر {item.lastBidder} عرضك في الثواني الأخيرة! زايد الآن (+6s)!</span>
-                      </div>
-                    )}
-
-                    {item.soldStatus === 'SOLD_OTHER' ? (
-                      <div className="rounded-xl bg-slate-900 border border-slate-800 py-3 px-4 text-center">
-                        <div className="text-xs text-slate-400">
-                          تم البيع للمنافس {item.lastBidder ?? 'مروض آخر'}
-                        </div>
-                        <div className="font-mono-num text-base font-black text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
-                          <CornIcon className="w-4 h-4" />
-                          <span>{item.cornPrice.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    ) : item.soldStatus === 'SOLD_YOU' ? (
-                      <div className="rounded-xl bg-emerald-500/20 border border-emerald-400 py-3 px-4 text-center text-xs font-extrabold text-emerald-300">
-                        فزت بالمزاد! تمت إضافة التنين إلى قائمتك 🐉
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between text-xs px-1">
-                          <div className="flex items-center gap-1.5">
-                            <AuctionCountdown endsAtMs={endsAtMs} />
-                            {item.isUserBid ? (
-                              <span className="text-emerald-400 font-bold">· عرضك متصدر!</span>
-                            ) : (
-                              <span className="text-slate-400">· المزاد مشتعل</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 font-mono-num font-bold">
-                            <span className="text-emerald-400 flex items-center gap-1">
-                              <CornIcon className="w-3.5 h-3.5" />
-                              {formatCompactNumber(item.cornPrice)}
-                            </span>
-                            <span className="text-indigo-400 flex items-center gap-1">
-                              <StarIcon className="w-3.5 h-3.5" />
-                              {item.starPrice}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2.5">
-                          <button
-                            disabled={state.corn < nextBidCorn}
-                            onClick={() => {
-                              soundFX.playTapFeed();
-                              onBidListing(item.id);
-                            }}
-                            className={`min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
-                              state.corn >= nextBidCorn
-                                ? 'bg-gradient-to-b from-[#facc15] to-[#eab308] text-slate-950 hover:brightness-105 cursor-pointer'
-                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            }`}
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            <CornIcon className="w-3.5 h-3.5" />
-                            <span className="font-mono-num">{formatCompactNumber(nextBidCorn)}</span>
-                          </button>
-
-                          <button
-                            disabled={state.stars < item.starPrice}
-                            onClick={() => {
-                              soundFX.playGodConfirm();
-                              onBuyNowListing(item.id);
-                            }}
-                            className={`min-h-[44px] py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
-                              state.stars >= item.starPrice
-                                ? 'bg-indigo-500 text-white hover:bg-indigo-400 cursor-pointer'
-                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            }`}
-                          >
-                            <StarIcon className="w-3.5 h-3.5" />
-                            <span className="font-mono-num">شراء فوري {item.starPrice}</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* SVG Market Activity Chart */}
-              <div className="bg-[#181b24] border border-slate-800 rounded-3xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                    <h3 className="text-sm font-black text-white">مؤشر أسعار التنانين · {RARITY_STYLE[rarityTab].labelAr}</h3>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {Object.keys(CHART_SERIES).map((tf) => (
-                      <button
-                        key={tf}
-                        onClick={() => {
-                          soundFX.playTabSwitch();
-                          setTimeframe(tf);
-                        }}
-                        className={`min-h-[36px] min-w-[36px] px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
-                          timeframe === tf ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {tf}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="relative bg-slate-900/80 border border-slate-800 rounded-2xl p-2">
-                  <svg viewBox="0 0 320 110" className="w-full h-32 overflow-visible">
-                    <line x1="18" y1="22" x2="302" y2="22" stroke="#1e293b" strokeDasharray="3 3" />
-                    <line x1="18" y1="57" x2="302" y2="57" stroke="#1e293b" strokeDasharray="3 3" />
-                    <line x1="18" y1="92" x2="302" y2="92" stroke="#1e293b" strokeDasharray="3 3" />
-                    <polyline
-                      fill="none"
-                      stroke="#22c55e"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={polylineStr}
-                    />
-                    {svgPoints.map((pt, idx) => (
-                      <circle
-                        key={idx}
-                        cx={pt.x}
-                        cy={pt.y}
-                        r={hoverPointIdx === idx ? 5.5 : 3.5}
-                        fill="#4ade80"
-                        stroke="#0f172a"
-                        strokeWidth="1.5"
-                        className="cursor-pointer"
-                        onMouseEnter={() => setHoverPointIdx(idx)}
-                        onMouseLeave={() => setHoverPointIdx(null)}
-                      />
-                    ))}
-                  </svg>
-                  {hoverPointIdx !== null && svgPoints[hoverPointIdx] && (
-                    <div className="absolute top-2 left-3 px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-mono-num text-emerald-300">
-                      {Math.round(svgPoints[hoverPointIdx].val * 1000).toLocaleString()} طاقة
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between text-xs font-mono-num">
-                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                    <CornIcon className="w-3.5 h-3.5" />
-                    {latestChartK} (+2.4%)
-                  </span>
-                  <span className="text-indigo-400 font-bold flex items-center gap-1">
-                    <StarIcon className="w-3.5 h-3.5" />
-                    {latestChartStars} (+1.8%)
-                  </span>
-                </div>
-              </div>
             </div>
           )}
         </>
